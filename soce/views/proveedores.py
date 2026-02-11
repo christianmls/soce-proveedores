@@ -1,3 +1,4 @@
+# views/proveedores.py
 import reflex as rx
 from ..states.proveedores import ProveedoresState
 
@@ -14,12 +15,10 @@ def proveedores_view() -> rx.Component:
                         rx.input(placeholder="RUC (Obligatorio)", on_change=ProveedoresState.set_new_prov_ruc, value=ProveedoresState.new_prov_ruc),
                         rx.input(placeholder="Nombre (Opcional)", on_change=ProveedoresState.set_new_prov_nombre, value=ProveedoresState.new_prov_nombre),
                         
-                        # Selector de Categorías (FK)
                         rx.select.root(
                             rx.select.trigger(placeholder="Seleccionar Categoría..."),
                             rx.select.content(
                                 rx.foreach(
-                                    # Accedemos a las categorías desde el State base
                                     ProveedoresState.categorias, 
                                     lambda c: rx.select.item(c.nombre, value=c.id.to_string())
                                 )
@@ -36,5 +35,6 @@ def proveedores_view() -> rx.Component:
             ),
             width="100%",
         ),
-        # ... (Tu tabla de proveedores actual aquí)
+        # ... resto de tu tabla
+        on_mount=ProveedoresState.load_categorias,  # <-- AGREGAR ESTA LÍNEA para cargar categorías al montar
     )

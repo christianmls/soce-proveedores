@@ -1,17 +1,37 @@
 import reflex as rx
-from ..models import Proveedor
+from ..models import Proveedor, Categoria
 from ..state import State
 
 class ProveedoresState(State):
     proveedores: list[Proveedor] = []
+    categorias: list[Categoria] = []  # <-- AGREGAR ESTA LÍNEA
+    
     new_prov_ruc: str = ""
     new_prov_nombre: str = ""
-    # Variable para capturar el ID de la categoría seleccionada
     new_prov_cat_id: str = ""
 
-    def set_new_prov_ruc(self, val: str): self.new_prov_ruc = val
-    def set_new_prov_nombre(self, val: str): self.new_prov_nombre = val
-    def set_new_prov_cat_id(self, val: str): self.new_prov_cat_id = val
+    def set_new_prov_ruc(self, val: str): 
+        self.new_prov_ruc = val
+    
+    def set_new_prov_nombre(self, val: str): 
+        self.new_prov_nombre = val
+    
+    def set_new_prov_cat_id(self, val: str): 
+        self.new_prov_cat_id = val
+
+    def load_categorias(self):  # <-- AGREGAR ESTE MÉTODO
+        """Carga todas las categorías disponibles"""
+        with rx.session() as session:
+            self.categorias = session.exec(
+                Categoria.select()
+            ).all()
+
+    def load_proveedores(self):  # <-- AGREGAR ESTE MÉTODO
+        """Carga todos los proveedores"""
+        with rx.session() as session:
+            self.proveedores = session.exec(
+                Proveedor.select()
+            ).all()
 
     def add_proveedor(self):
         with rx.session() as session:
@@ -21,7 +41,6 @@ class ProveedoresState(State):
             nuevo = Proveedor(
                 ruc=self.new_prov_ruc,
                 nombre=self.new_prov_nombre,
-                # Convertimos a int si hay una categoría seleccionada
                 categoria_id=int(self.new_prov_cat_id) if self.new_prov_cat_id else None
             )
             session.add(nuevo)
@@ -31,4 +50,6 @@ class ProveedoresState(State):
         self.new_prov_ruc = ""
         self.new_prov_nombre = ""
         self.new_prov_cat_id = ""
-        return State.on_load
+        
+        # Recarga los proveedores
+        self.load_proveedores()
