@@ -1,5 +1,5 @@
 import reflex as rx
-from ..state import State
+from ..states.categorias import CategoriaState as State
 
 def categorias_view() -> rx.Component:
     return rx.vstack(

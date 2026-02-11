@@ -1,5 +1,5 @@
 import reflex as rx
-from ..state import State
+from ..states.procesos import ProcesosState as State
 
 def procesos_view() -> rx.Component:
     return rx.vstack(
