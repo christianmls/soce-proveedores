@@ -11,8 +11,8 @@ class ProcesosState(State):
     categoria_id: str = ""
     
     # Control del scraping
-    is_scraping: bool = False
-    scraping_progress: str = ""
+    is_scraping: bool = False  # Asegúrate que esté en False inicialmente
+    scraping_progress: str = "Esperando configuración..."
     
     # Datos
     categorias: list[Categoria] = []
@@ -28,6 +28,7 @@ class ProcesosState(State):
         """Carga todas las categorías disponibles"""
         with rx.session() as session:
             self.categorias = session.exec(Categoria.select()).all()
+        self.scraping_progress = "Listo para iniciar"
 
     def load_procesos(self):
         """Carga los procesos guardados"""
@@ -36,13 +37,17 @@ class ProcesosState(State):
 
     async def iniciar_scraping(self):
         """Inicia el proceso de scraping"""
-        if not self.proceso_url_id or not self.categoria_id:
-            self.scraping_progress = "❌ Error: Debes completar el ID del proceso y seleccionar una categoría"
+        if not self.proceso_url_id:
+            self.scraping_progress = "❌ Error: Debes ingresar el ID del proceso"
+            return
+            
+        if not self.categoria_id:
+            self.scraping_progress = "❌ Error: Debes seleccionar una categoría"
             return
         
         self.is_scraping = True
         self.scraping_progress = "🔄 Iniciando scraping..."
-        yield  # Actualiza UI
+        yield
         
         # Obtener proveedores de la categoría seleccionada
         with rx.session() as session:
@@ -55,10 +60,11 @@ class ProcesosState(State):
         if not proveedores:
             self.scraping_progress = "⚠️ No hay proveedores en la categoría seleccionada"
             self.is_scraping = False
+            yield
             return
         
         self.scraping_progress = f"📋 Encontrados {len(proveedores)} proveedores. Iniciando barrido..."
-        yield  # Actualiza UI
+        yield
         
         # Importar función de scraping
         from ..utils.scraper import scrape_proceso
@@ -71,14 +77,12 @@ class ProcesosState(State):
         
         for idx, proveedor in enumerate(proveedores, 1):
             self.scraping_progress = f"🔍 Procesando {idx}/{total}: {proveedor.nombre or proveedor.ruc}..."
-            yield  # Actualiza UI en cada iteración
+            yield
             
             try:
-                # Llamar a la función de scraping
                 datos = await scrape_proceso(self.proceso_url_id, proveedor.ruc)
                 
                 if datos:
-                    # Guardar en la base de datos
                     with rx.session() as session:
                         proceso = Proceso(
                             proceso_id=self.proceso_url_id,
@@ -93,9 +97,7 @@ class ProcesosState(State):
                         session.add(proceso)
                         session.commit()
                     exitosos += 1
-                    self.scraping_progress = f"✅ {idx}/{total}: Datos encontrados para {proveedor.ruc}"
                 else:
-                    # Marcar como sin datos
                     with rx.session() as session:
                         proceso = Proceso(
                             proceso_id=self.proceso_url_id,
@@ -107,12 +109,10 @@ class ProcesosState(State):
                         session.add(proceso)
                         session.commit()
                     sin_datos += 1
-                    self.scraping_progress = f"⚪ {idx}/{total}: Sin datos para {proveedor.ruc}"
                 
-                yield  # Actualiza UI después de procesar
+                yield
                         
             except Exception as e:
-                # Guardar error
                 with rx.session() as session:
                     proceso = Proceso(
                         proceso_id=self.proceso_url_id,
@@ -125,21 +125,11 @@ class ProcesosState(State):
                     session.add(proceso)
                     session.commit()
                 errores += 1
-                self.scraping_progress = f"❌ {idx}/{total}: Error en {proveedor.ruc}"
-                yield  # Actualiza UI
+                yield
             
-            # Pequeña pausa entre requests
             await asyncio.sleep(1)
         
-        # Resumen final
-        self.scraping_progress = f"""
-            ✅ Barrido completado!
-            📊 Total procesados: {total}
-            ✔️ Exitosos: {exitosos}
-            ⚪ Sin datos: {sin_datos}
-            ❌ Errores: {errores}
-        """.strip()
-        
+        self.scraping_progress = f"✅ Completado! Exitosos: {exitosos} | Sin datos: {sin_datos} | Errores: {errores}"
         self.is_scraping = False
         self.load_procesos()
-        yield  # Actualiza UI final
+        yield

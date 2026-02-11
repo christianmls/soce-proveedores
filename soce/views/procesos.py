@@ -12,12 +12,12 @@ def procesos_view() -> rx.Component:
                 rx.vstack(
                     rx.heading("URL del Proceso", size="5"),
                     rx.input(
-                        placeholder="Pegue el ID del proceso aquí...",
+                        placeholder="ID del proceso (ej: xrMof7bBhVxPzYlOopcMAsfszTSadIfpeUCMp99edjs)",
                         on_change=ProcesosState.set_proceso_url_id,
                         value=ProcesosState.proceso_url_id,
                         width="100%"
                     ),
-                    rx.text("Parámetros adicionales", size="2", weight="bold", margin_top="4"),
+                    rx.text("Categoría de Proveedores", size="2", weight="bold", margin_top="4"),
                     rx.select.root(
                         rx.select.trigger(placeholder="Seleccionar Categoría..."),
                         rx.select.content(
@@ -28,9 +28,14 @@ def procesos_view() -> rx.Component:
                         ),
                         on_change=ProcesosState.set_categoria_id,
                         value=ProcesosState.categoria_id,
+                        width="100%",
                     ),
                     rx.button(
-                        "Iniciar Scraping",
+                        rx.cond(
+                            ProcesosState.is_scraping,
+                            "⏳ Procesando...",
+                            "▶️ Iniciar Scraping"
+                        ),
                         on_click=ProcesosState.iniciar_scraping,
                         color_scheme="grass",
                         size="3",
@@ -49,11 +54,16 @@ def procesos_view() -> rx.Component:
                 rx.vstack(
                     rx.heading("Consola de Actividad", size="5"),
                     rx.box(
-                        rx.text(ProcesosState.scraping_progress),
+                        rx.text(
+                            ProcesosState.scraping_progress,
+                            white_space="pre-wrap"
+                        ),
                         padding="4",
                         background_color="gray.2",
                         border_radius="md",
                         min_height="200px",
+                        max_height="400px",
+                        overflow_y="auto",
                         width="100%"
                     ),
                     spacing="3",
@@ -71,8 +81,10 @@ def procesos_view() -> rx.Component:
             rx.table.header(
                 rx.table.row(
                     rx.table.column_header_cell("RUC Proveedor"),
+                    rx.table.column_header_cell("Nombre"),
                     rx.table.column_header_cell("Objeto del Proceso"),
-                    rx.table.column_header_cell("Valor Adjudicado"),
+                    rx.table.column_header_cell("Valor"),
+                    rx.table.column_header_cell("Estado"),
                 )
             ),
             rx.table.body(
@@ -80,12 +92,27 @@ def procesos_view() -> rx.Component:
                     ProcesosState.procesos,
                     lambda p: rx.table.row(
                         rx.table.cell(p.ruc_proveedor),
+                        rx.table.cell(p.nombre_proveedor),
                         rx.table.cell(p.objeto_proceso),
                         rx.table.cell(
-                            rx.cond(  # <-- CAMBIO AQUÍ: usar rx.cond en lugar de if
+                            rx.cond(
                                 p.valor_adjudicado > 0,
                                 rx.text(f"${p.valor_adjudicado:.2f}"),
                                 rx.text("-")
+                            )
+                        ),
+                        rx.table.cell(
+                            rx.badge(
+                                p.estado,
+                                color_scheme=rx.cond(
+                                    p.estado == "procesado",
+                                    "green",
+                                    rx.cond(
+                                        p.estado == "error",
+                                        "red",
+                                        "gray"
+                                    )
+                                )
                             )
                         ),
                     )
