@@ -1,5 +1,6 @@
 import reflex as rx
 from typing import Optional
+from sqlmodel import Field
 
 class Categoria(rx.Model, table=True):
     nombre: str
@@ -7,14 +8,11 @@ class Categoria(rx.Model, table=True):
 
 class Proveedor(rx.Model, table=True):
     ruc: str
-    # Nombre opcional inicializado como vacío
-    nombre: Optional[str] = "" 
+    nombre: Optional[str] = ""
     contacto: str = ""
     
-    # FK corregida para Reflex:
-    # SQLModel (que usa Reflex) prefiere 'foreign_key' directamente en rx.Field
-    # Si 'foreign_key' falló antes, es usualmente por el tipo 'int' vs 'Optional[int]'
-    categoria_id: Optional[int] = rx.Field(default=None, foreign_key="categoria.id")
+    # Usa Field de sqlmodel directamente para la clave foránea
+    categoria_id: Optional[int] = Field(default=None, foreign_key="categoria.id")
 
 class Proceso(rx.Model, table=True):
     objeto: str
