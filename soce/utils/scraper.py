@@ -1,5 +1,5 @@
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
+from playwright_stealth import stealth_sync
 import asyncio
 from typing import Optional, Dict
 
@@ -17,76 +17,126 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
     url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOProformaRegistrada.cpe?id={proceso_id}&ruc={ruc}"
     
     async with async_playwright() as p:
+        browser = None
         try:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-blink-features=AutomationControlled'
+                ]
+            )
+            
             context = await browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             )
+            
             page = await context.new_page()
             
-            # Aplicar stealth
-            await stealth_async(page)
+            # Ocultar automatización
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
             
             # Navegar a la URL
             await page.goto(url, wait_until='networkidle', timeout=30000)
             
             # Esperar a que cargue el contenido
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(3000)
             
             # Verificar si existe contenido (si no hay proforma registrada, no habrá datos)
-            datos_proveedor = await page.query_selector('.datos-proveedor, #datosProveedor, .panel')
+            # Ajusta estos selectores según la estructura real de la página
+            contenido = await page.content()
             
-            if not datos_proveedor:
+            # Si la página dice "no se encontró" o similar, retornar None
+            if "no se encontr" in contenido.lower() or "sin datos" in contenido.lower():
                 await browser.close()
                 return None
             
             # Extraer datos del proveedor
             datos = {}
             
-            # RUC
-            ruc_elem = await page.query_selector('text=/RUC:/')
-            if ruc_elem:
-                ruc_text = await ruc_elem.inner_text()
-                datos['ruc'] = ruc_text.split(':')[1].strip() if ':' in ruc_text else ruc
-            
-            # Razón Social / Nombre
-            nombre_elem = await page.query_selector('text=/Razón Social:|Nombre:/')
-            if nombre_elem:
-                nombre_text = await nombre_elem.inner_text()
-                datos['nombre_proveedor'] = nombre_text.split(':')[1].strip() if ':' in nombre_text else ""
-            
-            # Objeto del proceso / Descripción
-            objeto_elem = await page.query_selector('text=/Descripción del Producto|Detalle del objeto/')
-            if objeto_elem:
-                # Buscar la tabla de productos
-                tabla = await page.query_selector('table')
-                if tabla:
-                    filas = await tabla.query_selector_all('tr')
-                    if len(filas) > 1:
-                        celdas = await filas[1].query_selector_all('td')
-                        if len(celdas) > 2:
-                            datos['objeto'] = await celdas[2].inner_text()
-            
-            # Valor Total
-            valor_elem = await page.query_selector('text=/TOTAL:|Valor Total/')
-            if valor_elem:
-                # Buscar el valor en la misma fila o siguiente
-                parent = await valor_elem.evaluate_handle('el => el.parentElement')
-                valor_text = await parent.inner_text()
-                # Extraer número (quitar USD, comas, etc)
-                import re
-                valor_match = re.search(r'[\d,.]+', valor_text.replace('USD', '').replace('.', ''))
-                if valor_match:
-                    datos['valor_total'] = float(valor_match.group().replace(',', '.'))
+            try:
+                # RUC - buscar por texto que contenga "RUC:"
+                ruc_elements = await page.query_selector_all('text=/RUC/i')
+                for elem in ruc_elements:
+                    text = await elem.text_content()
+                    if text and ':' in text:
+                        datos['ruc'] = text.split(':')[-1].strip()
+                        break
+                
+                # Razón Social / Nombre
+                nombre_elements = await page.query_selector_all('text=/Razón Social|Nombre/i')
+                for elem in nombre_elements:
+                    text = await elem.text_content()
+                    if text and ':' in text:
+                        datos['nombre_proveedor'] = text.split(':')[-1].strip()
+                        break
+                
+                # Buscar tablas con datos
+                tablas = await page.query_selector_all('table')
+                for tabla in tablas:
+                    # Extraer texto de la tabla
+                    tabla_texto = await tabla.inner_text()
+                    
+                    # Buscar descripción/objeto
+                    if 'descripci' in tabla_texto.lower() or 'producto' in tabla_texto.lower():
+                        filas = await tabla.query_selector_all('tr')
+                        if len(filas) > 1:
+                            for fila in filas[1:]:  # Saltar header
+                                celdas = await fila.query_selector_all('td')
+                                if len(celdas) > 2:
+                                    desc = await celdas[2].text_content()
+                                    if desc and len(desc.strip()) > 5:
+                                        datos['objeto'] = desc.strip()
+                                        break
+                    
+                    # Buscar valor total
+                    if 'total' in tabla_texto.lower() or 'valor' in tabla_texto.lower():
+                        import re
+                        # Buscar patrón de números con decimales
+                        valores = re.findall(r'[\d,]+\.[\d]+', tabla_texto)
+                        if valores:
+                            # Tomar el último valor (generalmente es el total)
+                            valor_str = valores[-1].replace(',', '')
+                            try:
+                                datos['valor_total'] = float(valor_str)
+                            except:
+                                pass
+                
+                # Si no encontramos valor en tablas, buscar en todo el contenido
+                if 'valor_total' not in datos:
+                    import re
+                    # Buscar "TOTAL:" seguido de número
+                    total_match = re.search(r'TOTAL[:\s]+USD[\s]*([\d,]+\.[\d]+)', contenido, re.IGNORECASE)
+                    if total_match:
+                        valor_str = total_match.group(1).replace(',', '')
+                        try:
+                            datos['valor_total'] = float(valor_str)
+                        except:
+                            pass
+                
+            except Exception as e:
+                print(f"Error extrayendo datos: {str(e)}")
             
             await browser.close()
-            return datos if datos else None
+            
+            # Solo retornar datos si encontramos al menos el RUC o nombre
+            if datos.get('ruc') or datos.get('nombre_proveedor'):
+                return datos
+            else:
+                return None
             
         except Exception as e:
             print(f"Error scraping {ruc}: {str(e)}")
-            try:
-                await browser.close()
-            except:
-                pass
+            if browser:
+                try:
+                    await browser.close()
+                except:
+                    pass
             raise e
