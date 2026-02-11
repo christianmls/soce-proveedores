@@ -12,7 +12,7 @@ def procesos_view() -> rx.Component:
                 rx.vstack(
                     rx.heading("URL del Proceso", size="5"),
                     rx.input(
-                        placeholder="Pegue la URL del SOCE aquí...",
+                        placeholder="Pegue el ID del proceso aquí...",
                         on_change=ProcesosState.set_proceso_url_id,
                         value=ProcesosState.proceso_url_id,
                         width="100%"
@@ -81,7 +81,13 @@ def procesos_view() -> rx.Component:
                     lambda p: rx.table.row(
                         rx.table.cell(p.ruc_proveedor),
                         rx.table.cell(p.objeto_proceso),
-                        rx.table.cell(f"${p.valor_adjudicado:.2f}" if p.valor_adjudicado else "-"),
+                        rx.table.cell(
+                            rx.cond(  # <-- CAMBIO AQUÍ: usar rx.cond en lugar de if
+                                p.valor_adjudicado > 0,
+                                rx.text(f"${p.valor_adjudicado:.2f}"),
+                                rx.text("-")
+                            )
+                        ),
                     )
                 )
             ),
