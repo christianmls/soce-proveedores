@@ -1,5 +1,5 @@
 import reflex as rx
-from ..state import State
+from ..states.proveedores import ProveedorState as State
 
 def proveedores_view() -> rx.Component:
     return rx.vstack(
