@@ -1,8 +1,8 @@
 import reflex as rx
 from typing import Optional
-from sqlmodel import Field
-
+from sqlalchemy import Column, DateTime, func
 from datetime import datetime
+
 class Categoria(rx.Model, table=True):
     nombre: str
     descripcion: str = ""
@@ -25,6 +25,10 @@ class Proceso(rx.Model, table=True):
     nombre_proveedor: Optional[str] = ""
     objeto_proceso: Optional[str] = ""
     valor_adjudicado: Optional[float] = 0.0
-    fecha_barrido: datetime = Field(default_factory=datetime.now)
+    # Cambia esta línea para usar server_default en lugar de default_factory
+    fecha_barrido: datetime = Field(
+        default=None,
+        sa_column=Column(DateTime, server_default=func.now(), nullable=False)
+    )
     estado: str = "pendiente"  # pendiente, procesado, error
     datos_json: Optional[str] = ""  # Para guardar datos adicionales
