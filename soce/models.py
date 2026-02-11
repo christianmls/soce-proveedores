@@ -2,6 +2,7 @@ import reflex as rx
 from typing import Optional
 from sqlmodel import Field
 
+from datetime import datetime
 class Categoria(rx.Model, table=True):
     nombre: str
     descripcion: str = ""
@@ -19,6 +20,11 @@ class Proveedor(rx.Model, table=True):
     )
 
 class Proceso(rx.Model, table=True):
-    objeto: str
-    valor: str
-    proveedor_ruc: str
+    proceso_id: str  # El ID del proceso de compras públicas
+    ruc_proveedor: str
+    nombre_proveedor: Optional[str] = ""
+    objeto_proceso: Optional[str] = ""
+    valor_adjudicado: Optional[float] = 0.0
+    fecha_barrido: datetime = Field(default_factory=datetime.now)
+    estado: str = "pendiente"  # pendiente, procesado, error
+    datos_json: Optional[str] = ""  # Para guardar datos adicionales
