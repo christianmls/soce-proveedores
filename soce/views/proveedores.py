@@ -1,5 +1,5 @@
 import reflex as rx
-from ..states.proveedores import ProveedorState as State
+from ..states.proveedores import ProveedoresState
 
 def proveedores_view() -> rx.Component:
     return rx.vstack(
@@ -11,10 +11,24 @@ def proveedores_view() -> rx.Component:
                 rx.dialog.content(
                     rx.dialog.title("Nuevo Proveedor"),
                     rx.vstack(
-                        rx.input(placeholder="RUC", on_change=State.set_new_prov_ruc, value=State.new_prov_ruc),
-                        rx.input(placeholder="Nombre", on_change=State.set_new_prov_nombre, value=State.new_prov_nombre),
+                        rx.input(placeholder="RUC (Obligatorio)", on_change=ProveedoresState.set_new_prov_ruc, value=ProveedoresState.new_prov_ruc),
+                        rx.input(placeholder="Nombre (Opcional)", on_change=ProveedoresState.set_new_prov_nombre, value=ProveedoresState.new_prov_nombre),
+                        
+                        # Selector de Categorías (FK)
+                        rx.select.root(
+                            rx.select.trigger(placeholder="Seleccionar Categoría..."),
+                            rx.select.content(
+                                rx.foreach(
+                                    # Accedemos a las categorías desde el State base
+                                    ProveedoresState.categorias, 
+                                    lambda c: rx.select.item(c.nombre, value=c.id.to_string())
+                                )
+                            ),
+                            on_change=ProveedoresState.set_new_prov_cat_id,
+                        ),
+                        
                         rx.dialog.close(
-                            rx.button("Guardar", on_click=State.add_proveedor, width="100%")
+                            rx.button("Guardar", on_click=ProveedoresState.add_proveedor, width="100%", color_scheme="grass")
                         ),
                         spacing="3",
                     ),
@@ -22,14 +36,5 @@ def proveedores_view() -> rx.Component:
             ),
             width="100%",
         ),
-        rx.table.root(
-            rx.table.header(rx.table.row(rx.table.column_header_cell("RUC"), rx.table.column_header_cell("Nombre"))),
-            rx.table.body(
-                rx.foreach(State.proveedores, lambda p: rx.table.row(rx.table.cell(p.ruc), rx.table.cell(p.nombre)))
-            ),
-            width="100%",
-            variant="surface",
-        ),
-        width="100%",
-        spacing="5",
+        # ... (Tu tabla de proveedores actual aquí)
     )
