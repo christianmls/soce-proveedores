@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - /app/.web
+      - /app/node_modules
+      - ./db:/app/db  # Persistencia para la carpeta db
+    environment:
+      - WATCHFILES_FORCE_POLLING=true
+      - PYTHONUNBUFFERED=1
