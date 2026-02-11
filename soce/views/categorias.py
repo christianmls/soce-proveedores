@@ -11,9 +11,18 @@ def categorias_view() -> rx.Component:
                 rx.dialog.content(
                     rx.dialog.title("Añadir Categoría"),
                     rx.vstack(
-                        rx.input(placeholder="Nombre", on_change=State.set_new_cat_nombre, value=State.new_cat_nombre),
+                        rx.input(
+                            placeholder="Nombre", 
+                            on_change=State.set_new_cat_nombre, 
+                            value=State.new_cat_nombre
+                        ),
+                        rx.text_area(  # <-- AGREGAR campo descripción
+                            placeholder="Descripción (opcional)",
+                            on_change=State.set_new_cat_descripcion,
+                            value=State.new_cat_descripcion
+                        ),
                         rx.dialog.close(
-                            rx.button("Guardar", on_click=State.add_categoria, width="100%")
+                            rx.button("Guardar", on_click=State.add_categoria, width="100%", color_scheme="grass")
                         ),
                         spacing="3",
                     ),
@@ -39,4 +48,5 @@ def categorias_view() -> rx.Component:
         ),
         spacing="5",
         width="100%",
+        on_mount=State.load_categorias,  # <-- AGREGAR ESTA LÍNEA CRÍTICA
     )
