@@ -11,8 +11,12 @@ class Proveedor(rx.Model, table=True):
     nombre: Optional[str] = ""
     contacto: str = ""
     
-    # Usa Field de sqlmodel directamente para la clave foránea
-    categoria_id: Optional[int] = Field(default=None, foreign_key="categoria.id")
+    # Añade un nombre a la clave foránea usando sa_column_kwargs
+    categoria_id: Optional[int] = Field(
+        default=None, 
+        foreign_key="categoria.id",
+        sa_column_kwargs={"name": "categoria_id"}
+    )
 
 class Proceso(rx.Model, table=True):
     objeto: str
