@@ -31,11 +31,16 @@ def procesos_view() -> rx.Component:
                     rx.text("URL del Proceso", weight="bold"),
                     rx.input(
                         placeholder="Pegue la URL del SOCE aquí...",
+                        # Asegúrate de que ProcesosState tenga set_url_base
                         on_blur=State.set_url_base,
                         width="100%",
                     ),
                     rx.text("Parámetros adicionales", size="2", color_scheme="gray"),
-                    rx.checkbox("Guardar capturas de pantalla", default_checked=False),
+                    rx.hstack(
+                        rx.checkbox(default_checked=False),
+                        rx.text("Guardar capturas de pantalla", size="2"),
+                        spacing="2",
+                    ),
                     spacing="3",
                 ),
                 variant="surface",
