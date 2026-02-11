@@ -1,25 +1,20 @@
 import reflex as rx
 from typing import Optional
-import sqlmodel
 
 class Categoria(rx.Model, table=True):
     nombre: str
     descripcion: str = ""
 
 class Proveedor(rx.Model, table=True):
-    # 1. Definimos el RUC como campo obligatorio
     ruc: str
+    # Nombre opcional inicializado como vacío
+    nombre: Optional[str] = "" 
+    contacto: str = ""
     
-    # 2. El nombre con Optional y valor por defecto None para que sea Nullable
-    nombre: Optional[str] = rx.Field(default=None)
-    
-    # 3. La Clave Foránea corregida:
-    # Usamos Optional[int] y pasamos foreign_key como primer argumento posicional de Field si es necesario, 
-    # o aseguramos que sqlmodel lo reconozca.
-    categoria_id: Optional[int] = rx.Field(
-        default=None, 
-        sa_column=sqlmodel.Column(sqlmodel.Integer, sqlmodel.ForeignKey("categoria.id"), nullable=True)
-    )
+    # FK corregida para Reflex:
+    # SQLModel (que usa Reflex) prefiere 'foreign_key' directamente en rx.Field
+    # Si 'foreign_key' falló antes, es usualmente por el tipo 'int' vs 'Optional[int]'
+    categoria_id: Optional[int] = rx.Field(default=None, foreign_key="categoria.id")
 
 class Proceso(rx.Model, table=True):
     objeto: str
