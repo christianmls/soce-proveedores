@@ -101,7 +101,6 @@ def procesos_view():
                 rx.table.header(
                     rx.table.row(
                         rx.table.column_header_cell("Código"),
-                        rx.table.column_header_cell("Nombre"),
                         rx.table.column_header_cell("Fecha Creación"),
                         rx.table.column_header_cell("Acciones", width="150px")
                     )
@@ -112,14 +111,8 @@ def procesos_view():
                         lambda p: rx.table.row(
                             rx.table.cell(
                                 rx.text(
-                                    p["codigo"][:40] + "..." if len(p["codigo"]) > 40 else p["codigo"],
+                                    p["codigo"],
                                     font_family="monospace",
-                                    size="2"
-                                )
-                            ),
-                            rx.table.cell(
-                                rx.text(
-                                    ProcesosState.procesos[0].nombre if ProcesosState.procesos else "-",
                                     size="2"
                                 )
                             ),
@@ -130,14 +123,14 @@ def procesos_view():
                                 rx.hstack(
                                     rx.button(
                                         rx.icon("eye", size=16),
-                                        on_click=lambda: ProcesosState.ir_a_detalle(p["id"]),
+                                        on_click=lambda pid=p["id"]: ProcesosState.ir_a_detalle(pid),
                                         size="1",
                                         variant="soft",
                                         color_scheme="blue"
                                     ),
                                     rx.button(
                                         rx.icon("trash-2", size=16),
-                                        on_click=lambda: ProcesosState.eliminar_proceso(p["id"]),
+                                        on_click=lambda pid=p["id"]: ProcesosState.eliminar_proceso(pid),
                                         size="1",
                                         variant="soft",
                                         color_scheme="red"
@@ -156,5 +149,6 @@ def procesos_view():
             width="100%"
         ),
         padding="32px",
-        width="100%"
+        width="100%",
+        on_mount=ProcesosState.load_procesos
     )
