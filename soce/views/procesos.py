@@ -1,6 +1,40 @@
 import reflex as rx
 from ..states.procesos import ProcesosState
 
+def proceso_row(p):
+    """Fila individual de proceso"""
+    return rx.table.row(
+        rx.table.cell(
+            rx.text(
+                p["codigo"],
+                font_family="monospace",
+                size="2"
+            )
+        ),
+        rx.table.cell(
+            rx.text(p["fecha"], size="2", color="gray")
+        ),
+        rx.table.cell(
+            rx.hstack(
+                rx.button(
+                    rx.icon("eye", size=16),
+                    on_click=ProcesosState.ir_a_detalle(p["id"]),
+                    size="1",
+                    variant="soft",
+                    color_scheme="blue"
+                ),
+                rx.button(
+                    rx.icon("trash-2", size=16),
+                    on_click=ProcesosState.eliminar_proceso(p["id"]),
+                    size="1",
+                    variant="soft",
+                    color_scheme="red"
+                ),
+                spacing="2"
+            )
+        )
+    )
+
 def procesos_view():
     """Vista de listado de procesos mejorada"""
     return rx.box(
@@ -108,37 +142,7 @@ def procesos_view():
                 rx.table.body(
                     rx.foreach(
                         ProcesosState.lista_procesos_formateada,
-                        lambda p: rx.table.row(
-                            rx.table.cell(
-                                rx.text(
-                                    p["codigo"],
-                                    font_family="monospace",
-                                    size="2"
-                                )
-                            ),
-                            rx.table.cell(
-                                rx.text(p["fecha"], size="2", color="gray")
-                            ),
-                            rx.table.cell(
-                                rx.hstack(
-                                    rx.button(
-                                        rx.icon("eye", size=16),
-                                        on_click=lambda pid=p["id"]: ProcesosState.ir_a_detalle(pid),
-                                        size="1",
-                                        variant="soft",
-                                        color_scheme="blue"
-                                    ),
-                                    rx.button(
-                                        rx.icon("trash-2", size=16),
-                                        on_click=lambda pid=p["id"]: ProcesosState.eliminar_proceso(pid),
-                                        size="1",
-                                        variant="soft",
-                                        color_scheme="red"
-                                    ),
-                                    spacing="2"
-                                )
-                            )
-                        )
+                        proceso_row
                     )
                 ),
                 width="100%",
