@@ -35,12 +35,10 @@ class Barrido(rx.Model, table=True):
     exitosos: int = 0
 
 class Oferta(rx.Model, table=True):
-    """Guarda cada fila de la tabla de la web"""
+    """Guarda cada fila de la tabla de la web (Columnas 1-7)"""
     barrido_id: int = Field(foreign_key="barrido.id")
     ruc_proveedor: str
     razon_social: Optional[str] = ""
-    
-    # Columnas exactas de la web
     numero_item: str
     cpc: str
     descripcion_producto: str
@@ -48,13 +46,11 @@ class Oferta(rx.Model, table=True):
     cantidad: float
     valor_unitario: float
     valor_total: float
-    
     fecha_scraping: Optional[datetime] = None
 
 class Anexo(rx.Model, table=True):
-    """Nueva tabla para documentos adjuntos"""
+    """Tabla independiente para documentos adjuntos"""
     barrido_id: int = Field(foreign_key="barrido.id")
     ruc_proveedor: str
     nombre_archivo: str
-    # En estos sitios la URL suele ser dinámica, guardamos el nombre como referencia
     fecha_registro: datetime = Field(default_factory=datetime.now)

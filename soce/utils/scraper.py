@@ -14,20 +14,23 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             await page.goto(url, wait_until='domcontentloaded', timeout=30000)
             await page.wait_for_timeout(3000)
             
-            # 1. VALIDACIÓN DE TOTAL (Si es 0, descartamos)
-            total_text = await page.locator("text='TOTAL:'").locator("xpath=following-sibling::td[1]").inner_text()
-            total_val = float(re.sub(r'[^\d\.]', '', total_text.replace(',', ''))) if total_text else 0
+            # 1. VALIDACIÓN DE TOTAL (Si es 0 o no existe, descartamos)
+            total_val = 0.0
+            try:
+                total_text = await page.locator("text='TOTAL:'").locator("xpath=following-sibling::td[1]").inner_text()
+                total_val = float(re.sub(r'[^\d\.]', '', total_text.replace(',', '')))
+            except: pass
             
             if total_val <= 0:
                 await browser.close()
-                return None # No hay oferta real
+                return None
 
-            # 2. DATOS DEL PROVEEDOR
+            # 2. DATOS PROVEEDOR
             texto_completo = await page.inner_text('body')
-            razon_social_match = re.search(r'Razón Social[:\s]+([^\n]+)', texto_completo)
-            razon_social = razon_social_match.group(1).strip() if razon_social_match else "N/D"
+            razon_match = re.search(r'Razón Social[:\s]+([^\n]+)', texto_completo)
+            razon_social = razon_match.group(1).strip() if razon_match else "N/D"
 
-            # 3. EXTRACCIÓN DE ÍTEMS (Filas 1 a N)
+            # 3. ÍTEMS (Col 1 a 7)
             items = []
             rows = await page.query_selector_all("table tr")
             for row in rows:
@@ -35,7 +38,6 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                 if len(cells) >= 7:
                     txt = await row.inner_text()
                     if "TOTAL" in txt or "Descripción" in txt: continue
-                    
                     try:
                         items.append({
                             "numero": (await cells[0].inner_text()).strip(),
@@ -48,22 +50,18 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         })
                     except: continue
 
-            # 4. EXTRACCIÓN DE ANEXOS
+            # 4. ANEXOS
             anexos = []
             anexo_rows = await page.query_selector_all("tr:has(input[type='image'])")
             for a_row in anexo_rows:
                 a_cells = await a_row.query_selector_all("td")
-                if len(a_cells) >= 2:
+                if len(a_cells) >= 1:
                     nombre = (await a_cells[0].inner_text()).strip()
-                    if nombre and "Descripción" not in nombre:
+                    if nombre and "Archivo" not in nombre:
                         anexos.append(nombre)
 
             await browser.close()
-            return {
-                "razon_social": razon_social,
-                "items": items,
-                "anexos": anexos
-            }
-    except Exception as e:
+            return {"razon_social": razon_social, "items": items, "anexos": anexos}
+    except Exception:
         if browser: await browser.close()
         return None
