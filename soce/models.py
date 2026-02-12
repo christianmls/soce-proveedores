@@ -27,11 +27,11 @@ class Proceso(rx.Model, table=True):
     objeto: Optional[str] = ""
     entidad: Optional[str] = ""
     fecha_creacion: Optional[datetime] = None
+    categoria_id: int = Field(foreign_key="categoria.id")
 
 class Barrido(rx.Model, table=True):
     """Cada ejecución de scraping sobre un proceso"""
-    proceso_id: int = Field(foreign_key="proceso.id")
-    categoria_id: int = Field(foreign_key="categoria.id")
+    proceso_id: int = Field(foreign_key="proceso.id")    
     fecha_inicio: Optional[datetime] = None
     fecha_fin: Optional[datetime] = None
     estado: str = "en_proceso"  # en_proceso, completado, error

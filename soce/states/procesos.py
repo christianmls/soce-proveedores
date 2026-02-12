@@ -4,34 +4,28 @@ from ..models import Proceso, Barrido, Oferta, Proveedor, Categoria
 from ..state import State
 import asyncio
 from datetime import datetime
+from sqlmodel import select, desc # Necesario para ordenar
 
 class ProcesosState(State):
-    # --- CONTROL DE NAVEGACIÓN (NUEVO) ---
-    # Valores posibles: "procesos", "categorias", "proveedores", "detalle_proceso"
-    current_view: str = "procesos" 
-
-    def set_view(self, view: str):
-        self.current_view = view
-
-    # --- VARIABLES DE ESTADO ---
-    # YA NO ES UN COMPUTED VAR DE RUTA, AHORA ES UNA VARIABLE NORMAL
-    proceso_id: int = 0 
-    
+    # --- NAVEGACIÓN ---
+    current_view: str = "procesos"
+    proceso_id: int = 0
     proceso_url_id: str = ""
+    
+    # --- DATOS ---
     categoria_id: str = ""
+    nombre_categoria_actual: str = "" # Para mostrar el nombre en el detalle (Solo lectura)
+    
     nuevo_codigo_proceso: str = ""
     nuevo_nombre_proceso: str = ""
-    
     is_scraping: bool = False
-    scraping_progress: str = "Listo para iniciar"
+    scraping_progress: str = "" # Vacío por defecto
     
     categorias: list[Categoria] = []
     procesos: list[Proceso] = []
     proceso_actual: Optional[Proceso] = None
-    barridos: list[Barrido] = []
     ofertas_actuales: list[Oferta] = []
-    barrido_seleccionado_id: Optional[int] = None
-
+    
     # --- COMPUTED VARS ---
 
     @rx.var
@@ -44,22 +38,6 @@ class ProcesosState(State):
                 "fecha": p.fecha_creacion.strftime("%Y-%m-%d %H:%M") if p.fecha_creacion else "-"
             }
             for p in self.procesos
-        ]
-
-    @rx.var
-    def barridos_formateados(self) -> List[Dict[str, Any]]:
-        return [
-            {
-                "id": str(b.id),
-                "fecha_inicio": b.fecha_inicio.strftime("%Y-%m-%d %H:%M") if b.fecha_inicio else "-",
-                "fecha_fin": b.fecha_fin.strftime("%H:%M") if b.fecha_fin else "En curso",
-                "total": str(b.total_proveedores),
-                "exitosos": str(b.exitosos),
-                "sin_datos": str(b.sin_datos),
-                "errores": str(b.errores),
-                "estado": b.estado
-            }
-            for b in self.barridos
         ]
 
     @rx.var
@@ -80,87 +58,115 @@ class ProcesosState(State):
                 "tiene_archivos": o.tiene_archivos,
                 "estado": o.estado
             }
-            for o in self.ofertas_actuales if o.estado == "procesado"
+            # Mostramos ofertas procesadas o con errores, para tener feedback
+            for o in self.ofertas_actuales 
         ]
+    
+    @rx.var
+    def tiene_ofertas(self) -> bool:
+        return len(self.ofertas_actuales) > 0
 
-    # --- ACCIONES DE NAVEGACIÓN ---
+    # --- ACCIONES ---
 
     def ir_a_detalle(self, p_id: str):
-        """Selecciona un proceso y cambia la vista"""
         self.proceso_id = int(p_id)
-        self.load_proceso_detalle() # Carga los datos inmediatamente
-        self.current_view = "detalle_proceso" # Cambia la pantalla
+        self.load_proceso_detalle()
+        self.current_view = "detalle_proceso"
 
     def volver_a_lista(self):
-        """Regresa a la lista de procesos"""
         self.current_view = "procesos"
         self.proceso_id = 0
-        self.proceso_actual = None
+        self.ofertas_actuales = []
+        self.scraping_progress = ""
+        self.nuevo_codigo_proceso = ""
+        self.nuevo_nombre_proceso = ""
+        self.categoria_id = ""
 
-    # --- SETTERS ---
+    # Setters
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
     def set_categoria_id(self, val: str): self.categoria_id = val
-    
-    def set_barrido_seleccionado(self, barrido_id: str):
-        self.barrido_seleccionado_id = int(barrido_id)
-        self.cargar_ofertas_barrido()
 
     # --- CARGA DE DATOS ---
 
     def load_procesos(self):
         with rx.session() as session:
-            self.procesos = session.exec(Proceso.select()).all()
-    
+            self.procesos = session.exec(select(Proceso).order_by(desc(Proceso.fecha_creacion))).all()
+            
+    def load_categorias(self):
+        with rx.session() as session:
+            self.categorias = session.exec(select(Categoria)).all()
+
     def crear_proceso(self):
-        if not self.nuevo_codigo_proceso: return
+        if not self.nuevo_codigo_proceso or not self.categoria_id: return
+
         with rx.session() as session:
             proceso = Proceso(
                 codigo_proceso=self.nuevo_codigo_proceso,
                 nombre=self.nuevo_nombre_proceso,
-                fecha_creacion=datetime.now()
+                fecha_creacion=datetime.now(),
+                categoria_id=int(self.categoria_id) # Guardamos la categoría
             )
             session.add(proceso)
             session.commit()
+        
         self.nuevo_codigo_proceso = ""
         self.nuevo_nombre_proceso = ""
+        self.categoria_id = ""
         self.load_procesos()
 
     def load_proceso_detalle(self):
-        # Ahora usa self.proceso_id (int) directamente, no parámetros de URL
+        """Carga el proceso y AUTOMÁTICAMENTE las ofertas del último barrido"""
         if not self.proceso_id: return
         
         with rx.session() as session:
+            # 1. Cargar datos del proceso
             self.proceso_actual = session.get(Proceso, self.proceso_id)
             if self.proceso_actual:
                 self.proceso_url_id = self.proceso_actual.codigo_proceso
-                self.barridos = session.exec(Barrido.select().where(Barrido.proceso_id == self.proceso_id)).all()
-        self.load_categorias()
+                
+                # Cargar nombre de categoría para mostrarlo (Read-Only)
+                if self.proceso_actual.categoria_id:
+                    self.categoria_id = str(self.proceso_actual.categoria_id)
+                    cat = session.get(Categoria, self.proceso_actual.categoria_id)
+                    self.nombre_categoria_actual = cat.nombre if cat else "Desconocida"
+                else:
+                    self.nombre_categoria_actual = "Sin Categoría"
 
-    def load_categorias(self):
-        with rx.session() as session:
-            self.categorias = session.exec(Categoria.select()).all()
+                # 2. BUSCAR EL ÚLTIMO BARRIDO (Lógica Clave)
+                # Ordenamos por ID descendente para obtener el más reciente
+                ultimo_barrido = session.exec(
+                    select(Barrido)
+                    .where(Barrido.proceso_id == self.proceso_id)
+                    .order_by(desc(Barrido.id))
+                ).first()
 
-    def cargar_ofertas_barrido(self):
-        if not self.barrido_seleccionado_id:
-            self.ofertas_actuales = []
-            return
-        with rx.session() as session:
-            self.ofertas_actuales = session.exec(
-                Oferta.select().where(Oferta.barrido_id == self.barrido_seleccionado_id)
-            ).all()
+                if ultimo_barrido:
+                    # Cargamos ofertas directamente
+                    self.ofertas_actuales = session.exec(
+                        select(Oferta).where(Oferta.barrido_id == ultimo_barrido.id)
+                    ).all()
+                    # Si acabamos de entrar, mostramos resumen del último estado
+                    if not self.is_scraping:
+                        self.scraping_progress = f"📅 Último barrido: {ultimo_barrido.fecha_fin.strftime('%d/%m %H:%M') if ultimo_barrido.fecha_fin else 'Reciente'}"
+                else:
+                    self.ofertas_actuales = []
+                    self.scraping_progress = "No hay barridos previos. Inicia uno."
 
-    # --- SCRAPING (Sin cambios en lógica interna) ---
+    # --- SCRAPING ---
+
     async def iniciar_scraping(self):
         pid = self.proceso_id
         if not pid or not self.categoria_id:
-            self.scraping_progress = "❌ Error: Verifique proceso y categoría"
+            self.scraping_progress = "❌ Error: Datos faltantes"
             return
         
         self.is_scraping = True
-        self.scraping_progress = "🔄 Iniciando..."
+        self.scraping_progress = "🔄 Conectando con proveedores..."
+        self.ofertas_actuales = [] # Limpiamos la vista anterior mientras carga
         yield
-
+        
+        # 1. Crear Barrido
         with rx.session() as session:
             barrido = Barrido(
                 proceso_id=pid,
@@ -173,30 +179,37 @@ class ProcesosState(State):
             session.refresh(barrido)
             barrido_id = barrido.id
 
+        # 2. Obtener Proveedores
         with rx.session() as session:
             proveedores = session.exec(
-                Proveedor.select().where(Proveedor.categoria_id == int(self.categoria_id))
+                select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))
             ).all()
 
         if not proveedores:
-            self.scraping_progress = "⚠️ No hay proveedores"
+            self.scraping_progress = "⚠️ No hay proveedores en esta categoría"
             self.is_scraping = False
             yield
             return
         
-        # Simulación
+        # 3. Simulación de Scraping (Aquí va tu lógica real)
         total = len(proveedores)
-        self.scraping_progress = f"📋 Encontrados {total} proveedores..."
+        self.scraping_progress = f"🔍 Analizando {total} proveedores..."
         yield
-        await asyncio.sleep(1)
-
+        
+        await asyncio.sleep(1.5) # Simulación de tiempo de carga
+        
+        # --- AQUÍ IRÍA TU CÓDIGO REAL DE SCRAPING QUE GUARDA LAS OFERTAS EN DB ---
+        
+        # 4. Finalizar
         with rx.session() as session:
-            b = session.get(Barrido, barrido_id)
-            b.estado = "completado"
-            b.fecha_fin = datetime.now()
-            b.total_proveedores = total
-            session.commit()
+             b = session.get(Barrido, barrido_id)
+             b.estado = "completado"
+             b.fecha_fin = datetime.now()
+             b.total_proveedores = total
+             session.commit()
 
-        self.scraping_progress = "✅ Completado"
+        self.scraping_progress = "✅ Barrido completado exitosamente"
         self.is_scraping = False
+        
+        # 5. RECARGAR AUTOMÁTICAMENTE PARA MOSTRAR LAS NUEVAS OFERTAS
         self.load_proceso_detalle()

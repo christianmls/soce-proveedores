@@ -2,15 +2,27 @@ import reflex as rx
 from ..states.procesos import ProcesosState
 
 def oferta_detalle_card(o: dict) -> rx.Component:
+    """Tarjeta de diseño para mostrar una oferta individual"""
     return rx.card(
         rx.vstack(
-            rx.heading(f"Proveedor: {o['razon_social']}", size="4"),
+            rx.hstack(
+                rx.heading(f"Proveedor: {o['razon_social']}", size="4"),
+                rx.spacer(),
+                rx.badge(o["estado"], color_scheme="blue"),
+                width="100%"
+            ),
             rx.grid(
-                rx.vstack(rx.text(f"RUC: {o['ruc']}"), rx.text(f"Correo: {o['correo']}")),
-                rx.vstack(rx.text(f"Ubicación: {o['ubicacion']}"), rx.text(f"Dirección: {o['direccion']}")),
+                rx.vstack(
+                    rx.text(f"RUC: {o['ruc']}", size="2", color_scheme="gray"),
+                    rx.text(f"Correo: {o['correo']}", size="2", color_scheme="gray"),
+                ),
+                rx.vstack(
+                    rx.text(f"Ubicación: {o['ubicacion']}", size="2", color_scheme="gray"),
+                    rx.text(f"Dirección: {o['direccion']}", size="2", color_scheme="gray"),
+                ),
                 columns="2", width="100%"
             ),
-            rx.divider(),
+            rx.divider(margin_y="2"),
             rx.table.root(
                 rx.table.header(
                     rx.table.row(
@@ -30,14 +42,16 @@ def oferta_detalle_card(o: dict) -> rx.Component:
                 ),
                 variant="surface", width="100%"
             ),
-            spacing="3"
+            spacing="3",
+            width="100%"
         ),
-        margin_bottom="4"
+        margin_bottom="4",
+        width="100%"
     )
 
 def proceso_detalle_view() -> rx.Component:
     return rx.vstack(
-        # CAMBIO CLAVE: Botón volver usa estado, no href
+        # Botón Volver
         rx.button(
             rx.icon("arrow-left"), 
             "Volver a Procesos", 
@@ -45,66 +59,57 @@ def proceso_detalle_view() -> rx.Component:
             on_click=ProcesosState.volver_a_lista
         ),
         
+        # Header del Proceso
         rx.card(
             rx.vstack(
                 rx.heading("Detalle del Proceso", size="6"),
                 rx.text(f"Código: {ProcesosState.proceso_url_id}", font_family="monospace"),
+                rx.hstack(
+                    rx.badge("Categoría:", variant="outline"),
+                    rx.text(ProcesosState.nombre_categoria_actual, weight="bold"),
+                    align_items="center"
+                )
             ),
             width="100%"
         ),
 
+        # Barra de Control de Scraping
         rx.card(
             rx.hstack(
-                rx.select.root(
-                    rx.select.trigger(placeholder="Seleccionar Categoría..."),
-                    rx.select.content(
-                        rx.foreach(ProcesosState.categorias, lambda c: rx.select.item(c.nombre, value=c.id.to_string()))
-                    ),
-                    on_change=ProcesosState.set_categoria_id,
-                    value=ProcesosState.categoria_id,
+                rx.button(
+                    rx.cond(ProcesosState.is_scraping, "Procesando...", "▶️ Iniciar Nuevo Barrido"), 
+                    on_click=ProcesosState.iniciar_scraping, 
+                    disabled=ProcesosState.is_scraping, 
+                    color_scheme="grass",
+                    size="3"
                 ),
-                rx.button("Iniciar Barrido", on_click=ProcesosState.iniciar_scraping, disabled=ProcesosState.is_scraping, color_scheme="grass"),
-                rx.text(ProcesosState.scraping_progress),
+                rx.text(ProcesosState.scraping_progress, weight="medium"),
                 align_items="center", spacing="4"
             ),
             width="100%"
         ),
 
-        rx.heading("Historial", size="5"),
-        rx.table.root(
-            rx.table.header(
-                rx.table.row(
-                    rx.table.column_header_cell("ID"),
-                    rx.table.column_header_cell("Fecha"),
-                    rx.table.column_header_cell("Total"),
-                    rx.table.column_header_cell("Estado"),
-                    rx.table.column_header_cell("Acción")
-                )
-            ),
-            rx.table.body(
-                rx.foreach(
-                    ProcesosState.barridos_formateados,
-                    lambda b: rx.table.row(
-                        rx.table.cell(b["id"]),
-                        rx.table.cell(b["fecha_inicio"]),
-                        rx.table.cell(b["total"]),
-                        rx.table.cell(rx.badge(b["estado"])),
-                        rx.table.cell(
-                            rx.button("Ver Ofertas", on_click=lambda: ProcesosState.set_barrido_seleccionado(b["id"]), size="1", variant="soft")
-                        )
-                    )
-                )
-            ),
-            width="100%", variant="surface"
+        rx.divider(),
+        
+        # Título dinámico
+        rx.heading(
+            rx.cond(
+                ProcesosState.tiene_ofertas,
+                "Resultados del Último Barrido",
+                "No hay ofertas registradas aún."
+            ), 
+            size="5"
         ),
 
-        rx.cond(
-            ProcesosState.barrido_seleccionado_id,
-            rx.vstack(
-                rx.heading(f"Resultados Barrido #{ProcesosState.barrido_seleccionado_id}", size="5"),
-                rx.foreach(ProcesosState.ofertas_formateadas, oferta_detalle_card),
-                width="100%"
-            )
+        # --- AQUÍ LAS OFERTAS DIRECTAMENTE (Sin tabla previa) ---
+        rx.vstack(
+            rx.foreach(
+                ProcesosState.ofertas_formateadas,
+                oferta_detalle_card
+            ),
+            width="100%",
+            spacing="4"
         ),
+        
         padding="4", width="100%", spacing="5"
     )
