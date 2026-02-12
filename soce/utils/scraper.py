@@ -20,14 +20,14 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             await page.goto(url, wait_until='domcontentloaded', timeout=45000)
             await page.wait_for_timeout(4000)
             
-            # 1. TOTAL GENERAL (Selector dinámico para el 2do tbody)
+            # 1. LOCALIZAR TOTAL (Independiente del tbody)
             total_general = 0.0
             try:
-                # Buscamos la fila que contiene el texto TOTAL:
-                fila_total = page.locator("tr:has-text('TOTAL:')")
-                # El valor está en el penúltimo td (el último es 'USD.')
-                texto_total = await fila_total.locator("td").nth(-2).inner_text()
-                total_general = clean_val(texto_total)
+                # El localizador busca en toda la tabla la fila con texto 'TOTAL:'
+                total_row = page.locator("tr:has-text('TOTAL:')")
+                # El valor está en el penúltimo td (justo antes de 'USD.')
+                total_text = await total_row.locator("td").nth(-2).inner_text()
+                total_general = clean_val(total_text)
             except: pass
 
             # 2. PRODUCTOS (Primer tbody)
@@ -36,8 +36,8 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             for row in rows:
                 cells = await row.query_selector_all("td")
                 if len(cells) >= 8:
-                    txt_f = await row.inner_text()
-                    if "TOTAL" in txt_f or "Descripción" in txt_f or "No." in txt_f: continue
+                    txt = await row.inner_text()
+                    if "TOTAL" in txt or "Descripción" in txt or "No." in txt: continue
                     try:
                         items.append({
                             "numero": (await cells[0].inner_text()).strip(),
@@ -59,12 +59,11 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                     celdas = await fila.query_selector_all("td")
                     if celdas:
                         nombre = (await celdas[0].inner_text()).strip()
-                        if nombre and "Archivo" not in nombre and "Descripción" not in nombre:
+                        if nombre and "Archivo" not in nombre:
                             anexos.append({"nombre": nombre, "url": url})
                 except: continue
 
             await browser.close()
-            if not items and total_general <= 0: return None
             return {"total": total_general, "items": items, "anexos": anexos}
     except:
         if browser: await browser.close()
