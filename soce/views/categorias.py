@@ -43,6 +43,7 @@ def categorias_view() -> rx.Component:
                     rx.table.cell(c.descripcion)
                 ))
             ),
+            spacing="6",
             width="100%",
             variant="surface",
         ),

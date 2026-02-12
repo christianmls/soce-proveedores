@@ -81,6 +81,7 @@ def proveedores_view() -> rx.Component:
                     )
                 )
             ),
+            spacing="6",
             width="100%",
             variant="surface",
         ),
