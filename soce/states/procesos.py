@@ -6,7 +6,17 @@ import asyncio
 from datetime import datetime
 
 class ProcesosState(State):
+    # --- CONTROL DE NAVEGACIÓN (NUEVO) ---
+    # Valores posibles: "procesos", "categorias", "proveedores", "detalle_proceso"
+    current_view: str = "procesos" 
+
+    def set_view(self, view: str):
+        self.current_view = view
+
     # --- VARIABLES DE ESTADO ---
+    # YA NO ES UN COMPUTED VAR DE RUTA, AHORA ES UNA VARIABLE NORMAL
+    proceso_id: int = 0 
+    
     proceso_url_id: str = ""
     categoria_id: str = ""
     nuevo_codigo_proceso: str = ""
@@ -22,11 +32,7 @@ class ProcesosState(State):
     ofertas_actuales: list[Oferta] = []
     barrido_seleccionado_id: Optional[int] = None
 
-    # --- COMPUTED VARS (Para evitar errores de tipos en Frontend) ---
-
-    @rx.var
-    def proceso_id(self) -> int:
-        return int(self.router.page.params.get("proceso_id", 0))
+    # --- COMPUTED VARS ---
 
     @rx.var
     def lista_procesos_formateada(self) -> List[Dict[str, Any]]:
@@ -77,27 +83,37 @@ class ProcesosState(State):
             for o in self.ofertas_actuales if o.estado == "procesado"
         ]
 
+    # --- ACCIONES DE NAVEGACIÓN ---
+
+    def ir_a_detalle(self, p_id: str):
+        """Selecciona un proceso y cambia la vista"""
+        self.proceso_id = int(p_id)
+        self.load_proceso_detalle() # Carga los datos inmediatamente
+        self.current_view = "detalle_proceso" # Cambia la pantalla
+
+    def volver_a_lista(self):
+        """Regresa a la lista de procesos"""
+        self.current_view = "procesos"
+        self.proceso_id = 0
+        self.proceso_actual = None
+
     # --- SETTERS ---
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
     def set_categoria_id(self, val: str): self.categoria_id = val
     
     def set_barrido_seleccionado(self, barrido_id: str):
-        # Recibimos string del frontend, convertimos a int
         self.barrido_seleccionado_id = int(barrido_id)
         self.cargar_ofertas_barrido()
 
-    # --- LÓGICA DE CARGA Y CREACIÓN (RESTAURADA) ---
+    # --- CARGA DE DATOS ---
 
     def load_procesos(self):
         with rx.session() as session:
             self.procesos = session.exec(Proceso.select()).all()
     
     def crear_proceso(self):
-        """Crea un nuevo proceso en la BD"""
-        if not self.nuevo_codigo_proceso:
-            return
-        
+        if not self.nuevo_codigo_proceso: return
         with rx.session() as session:
             proceso = Proceso(
                 codigo_proceso=self.nuevo_codigo_proceso,
@@ -106,19 +122,19 @@ class ProcesosState(State):
             )
             session.add(proceso)
             session.commit()
-        
         self.nuevo_codigo_proceso = ""
         self.nuevo_nombre_proceso = ""
         self.load_procesos()
 
     def load_proceso_detalle(self):
-        pid = self.proceso_id
-        if not pid: return
+        # Ahora usa self.proceso_id (int) directamente, no parámetros de URL
+        if not self.proceso_id: return
+        
         with rx.session() as session:
-            self.proceso_actual = session.get(Proceso, pid)
+            self.proceso_actual = session.get(Proceso, self.proceso_id)
             if self.proceso_actual:
                 self.proceso_url_id = self.proceso_actual.codigo_proceso
-                self.barridos = session.exec(Barrido.select().where(Barrido.proceso_id == pid)).all()
+                self.barridos = session.exec(Barrido.select().where(Barrido.proceso_id == self.proceso_id)).all()
         self.load_categorias()
 
     def load_categorias(self):
@@ -134,10 +150,8 @@ class ProcesosState(State):
                 Oferta.select().where(Oferta.barrido_id == self.barrido_seleccionado_id)
             ).all()
 
-    # --- LÓGICA DE SCRAPING (SIMPLIFICADA PARA EVITAR ERRORES DE IMPORT) ---
-    
+    # --- SCRAPING (Sin cambios en lógica interna) ---
     async def iniciar_scraping(self):
-        """Lógica principal del scraping"""
         pid = self.proceso_id
         if not pid or not self.categoria_id:
             self.scraping_progress = "❌ Error: Verifique proceso y categoría"
@@ -147,7 +161,6 @@ class ProcesosState(State):
         self.scraping_progress = "🔄 Iniciando..."
         yield
 
-        # 1. Crear Barrido
         with rx.session() as session:
             barrido = Barrido(
                 proceso_id=pid,
@@ -160,31 +173,23 @@ class ProcesosState(State):
             session.refresh(barrido)
             barrido_id = barrido.id
 
-        # 2. Buscar Proveedores
         with rx.session() as session:
             proveedores = session.exec(
                 Proveedor.select().where(Proveedor.categoria_id == int(self.categoria_id))
             ).all()
 
         if not proveedores:
-            self.scraping_progress = "⚠️ No hay proveedores en esta categoría"
+            self.scraping_progress = "⚠️ No hay proveedores"
             self.is_scraping = False
             yield
             return
-
-        # 3. Simulación de Loop (Aquí iría tu lógica de 'utils.scraper')
-        # NOTA: Asegúrate de importar tu scraper arriba si lo tienes listo:
-        # from ..utils.scraper import scrape_proceso 
         
+        # Simulación
         total = len(proveedores)
         self.scraping_progress = f"📋 Encontrados {total} proveedores..."
         yield
-
-        # ... (Tu lógica de bucle for aquí) ...
-        # Para que no falle ahora mismo, pondré una pausa simulada:
         await asyncio.sleep(1)
-        
-        # 4. Finalizar
+
         with rx.session() as session:
             b = session.get(Barrido, barrido_id)
             b.estado = "completado"
@@ -194,4 +199,4 @@ class ProcesosState(State):
 
         self.scraping_progress = "✅ Completado"
         self.is_scraping = False
-        self.load_proceso_detalle() # Recargar la tabla de barridos
+        self.load_proceso_detalle()

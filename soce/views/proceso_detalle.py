@@ -6,14 +6,8 @@ def oferta_detalle_card(o: dict) -> rx.Component:
         rx.vstack(
             rx.heading(f"Proveedor: {o['razon_social']}", size="4"),
             rx.grid(
-                rx.vstack(
-                    rx.text(f"RUC: {o['ruc']}"),
-                    rx.text(f"Correo: {o['correo']}"),
-                ),
-                rx.vstack(
-                    rx.text(f"Ubicación: {o['ubicacion']}"),
-                    rx.text(f"Dirección: {o['direccion']}"),
-                ),
+                rx.vstack(rx.text(f"RUC: {o['ruc']}"), rx.text(f"Correo: {o['correo']}")),
+                rx.vstack(rx.text(f"Ubicación: {o['ubicacion']}"), rx.text(f"Dirección: {o['direccion']}")),
                 columns="2", width="100%"
             ),
             rx.divider(),
@@ -43,9 +37,14 @@ def oferta_detalle_card(o: dict) -> rx.Component:
 
 def proceso_detalle_view() -> rx.Component:
     return rx.vstack(
-        rx.link(rx.button(rx.icon("arrow-left"), "Volver"), href="/procesos"),
+        # CAMBIO CLAVE: Botón volver usa estado, no href
+        rx.button(
+            rx.icon("arrow-left"), 
+            "Volver a Procesos", 
+            variant="ghost", 
+            on_click=ProcesosState.volver_a_lista
+        ),
         
-        # Encabezado del Proceso
         rx.card(
             rx.vstack(
                 rx.heading("Detalle del Proceso", size="6"),
@@ -54,33 +53,23 @@ def proceso_detalle_view() -> rx.Component:
             width="100%"
         ),
 
-        # Panel de Control Scraping
         rx.card(
             rx.hstack(
                 rx.select.root(
                     rx.select.trigger(placeholder="Seleccionar Categoría..."),
                     rx.select.content(
-                        rx.foreach(
-                            ProcesosState.categorias,
-                            lambda c: rx.select.item(c.nombre, value=c.id.to_string())
-                        )
+                        rx.foreach(ProcesosState.categorias, lambda c: rx.select.item(c.nombre, value=c.id.to_string()))
                     ),
                     on_change=ProcesosState.set_categoria_id,
                     value=ProcesosState.categoria_id,
                 ),
-                rx.button(
-                    "Iniciar Barrido", 
-                    on_click=ProcesosState.iniciar_scraping, 
-                    disabled=ProcesosState.is_scraping,
-                    color_scheme="grass"
-                ),
+                rx.button("Iniciar Barrido", on_click=ProcesosState.iniciar_scraping, disabled=ProcesosState.is_scraping, color_scheme="grass"),
                 rx.text(ProcesosState.scraping_progress),
                 align_items="center", spacing="4"
             ),
             width="100%"
         ),
 
-        # Historial de Barridos
         rx.heading("Historial", size="5"),
         rx.table.root(
             rx.table.header(
@@ -101,12 +90,7 @@ def proceso_detalle_view() -> rx.Component:
                         rx.table.cell(b["total"]),
                         rx.table.cell(rx.badge(b["estado"])),
                         rx.table.cell(
-                            rx.button(
-                                "Ver Ofertas", 
-                                # CLAVE: Lambda para evitar ejecución automática
-                                on_click=lambda: ProcesosState.set_barrido_seleccionado(b["id"]),
-                                size="1", variant="soft"
-                            )
+                            rx.button("Ver Ofertas", on_click=lambda: ProcesosState.set_barrido_seleccionado(b["id"]), size="1", variant="soft")
                         )
                     )
                 )
@@ -114,16 +98,13 @@ def proceso_detalle_view() -> rx.Component:
             width="100%", variant="surface"
         ),
 
-        # Ofertas
         rx.cond(
             ProcesosState.barrido_seleccionado_id,
             rx.vstack(
-                rx.heading(f"Resultados del Barrido #{ProcesosState.barrido_seleccionado_id}", size="5"),
+                rx.heading(f"Resultados Barrido #{ProcesosState.barrido_seleccionado_id}", size="5"),
                 rx.foreach(ProcesosState.ofertas_formateadas, oferta_detalle_card),
                 width="100%"
             )
         ),
-        
-        on_mount=ProcesosState.load_proceso_detalle,
         padding="4", width="100%", spacing="5"
     )

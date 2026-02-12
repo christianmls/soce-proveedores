@@ -6,16 +6,14 @@ def procesos_view() -> rx.Component:
         rx.heading("Procesos de Contratación", size="8"),
         rx.text("Gestión de procesos y barridos", color_scheme="gray"),
         
-        # Botón Nuevo
         rx.dialog.root(
             rx.dialog.trigger(rx.button(rx.icon("plus"), "Nuevo Proceso", color_scheme="grass")),
             rx.dialog.content(
                 rx.dialog.title("Crear Nuevo Proceso"),
                 rx.vstack(
-                    rx.input(placeholder="Código (ej: xrMof...)", on_change=ProcesosState.set_nuevo_codigo_proceso),
-                    rx.input(placeholder="Nombre (opcional)", on_change=ProcesosState.set_nuevo_nombre_proceso),
+                    rx.input(placeholder="Código", on_change=ProcesosState.set_nuevo_codigo_proceso),
+                    rx.input(placeholder="Nombre", on_change=ProcesosState.set_nuevo_nombre_proceso),
                     rx.dialog.close(
-                        # AHORA SÍ FUNCIONARÁ PORQUE 'crear_proceso' EXISTE
                         rx.button("Guardar", on_click=ProcesosState.crear_proceso, color_scheme="grass")
                     ),
                     spacing="3"
@@ -23,7 +21,6 @@ def procesos_view() -> rx.Component:
             )
         ),
         
-        # Tabla usando datos pre-formateados (Diccionarios)
         rx.table.root(
             rx.table.header(
                 rx.table.row(
@@ -43,16 +40,19 @@ def procesos_view() -> rx.Component:
                         rx.table.cell(p["nombre"]),
                         rx.table.cell(p["fecha"]),
                         rx.table.cell(
-                            rx.link(
-                                rx.button(rx.icon("eye"), size="1", variant="soft"),
-                                href=f"/proceso/{p['id']}"
+                            rx.button(
+                                rx.icon("eye"), 
+                                size="1", 
+                                variant="soft",
+                                # CAMBIO CLAVE: Usamos lambda para llamar a la función de estado
+                                on_click=lambda: ProcesosState.ir_a_detalle(p["id"]),
+                                cursor="pointer"
                             )
                         ),
                     )
                 )
             ),
-            width="100%",
-            variant="surface",
+            width="100%", variant="surface",
         ),
         on_mount=ProcesosState.load_procesos,
         spacing="5", padding="4", width="100%"
