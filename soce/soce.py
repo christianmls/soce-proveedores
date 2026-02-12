@@ -3,7 +3,7 @@ from .views.categorias import categorias_view
 from .views.proveedores import proveedores_view
 from .views.procesos import procesos_view
 from .views.proceso_detalle import proceso_detalle_view
-from .states.procesos import ProcesosState  # Importamos el estado centralizado
+from .states.procesos import ProcesosState 
 
 def sidebar_item(text: str, icon: str, page_value: str) -> rx.Component:
     return rx.button(
@@ -12,9 +12,14 @@ def sidebar_item(text: str, icon: str, page_value: str) -> rx.Component:
             rx.text(text, font_weight="medium"),
             spacing="3", align_items="center", width="100%",
         ),
+        # Usamos ProcesosState.current_view para saber cuál está activa
         variant=rx.cond(ProcesosState.current_view == page_value, "solid", "ghost"),
-        color_scheme="grass", width="100%", justify="start", padding="3",
-        on_click=lambda: ProcesosState.set_view(page_value), # Usamos ProcesosState
+        color_scheme="grass", 
+        width="100%", 
+        justify="start", 
+        padding="3",
+        # CORRECCIÓN AQUÍ: El setter automático de 'current_view' es 'set_current_view'
+        on_click=lambda: ProcesosState.set_current_view(page_value), 
         cursor="pointer",
     )
 
@@ -43,8 +48,8 @@ def index() -> rx.Component:
                 ("procesos", procesos_view()),
                 ("categorias", categorias_view()),
                 ("proveedores", proveedores_view()),
-                ("detalle_proceso", proceso_detalle_view()), # NUEVA VISTA INTERNA
-                procesos_view()
+                ("detalle_proceso", proceso_detalle_view()), # Vista interna de detalle
+                procesos_view() # Default
             ),
             flex="1", padding="8",
             background_color=rx.color("gray", 1),
@@ -55,5 +60,3 @@ def index() -> rx.Component:
 
 app = rx.App()
 app.add_page(index, route="/")
-# NOTA: Hemos eliminado app.add_page(proceso_detalle_view...) 
-# porque ahora es un componente interno, no una ruta separada.
