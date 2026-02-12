@@ -1,197 +1,291 @@
-from playwright.async_api import async_playwright
-import re
-from typing import Dict, Optional
+import reflex as rx
+from typing import List, Dict, Any
+from ..models import Proceso, Barrido, Oferta, Anexo, Proveedor, Categoria
+from ..state import State
+from sqlmodel import select, desc, delete
+from datetime import datetime
+from ..utils.scraper import scrape_proceso
 import asyncio
 
-async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
-    pid_clean = proceso_id.rstrip(',')
-    url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOProformaRegistrada.cpe?id={pid_clean}&ruc={ruc}"
+class ProcesosState(State):
+    current_view: str = "procesos"
+    proceso_id: int = 0
+    proceso_url_id: str = "" 
+    nuevo_codigo_proceso: str = ""
+    nuevo_nombre_proceso: str = ""
+    categoria_id: str = ""
+    is_scraping: bool = False
+    scraping_progress: str = ""
     
-    def clean_val(txt: str) -> float:
-        """Limpia valores numéricos manteniendo el punto decimal"""
-        if not txt: 
-            return 0.0
-        # Remover texto y espacios
-        clean = txt.replace('USD', '').replace('Unidad', '').strip()
-        # Remover todo excepto dígitos y punto
-        clean = re.sub(r'[^\d\.]', '', clean)
-        try: 
-            return float(clean) if clean else 0.0
-        except: 
-            return 0.0
+    procesos: List[Proceso] = []
+    categorias: List[Categoria] = []
+    ofertas_actuales: List[Oferta] = []
+    anexos_actuales: List[Anexo] = []
 
-    browser = None
-    context = None
-    page = None
-    
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-setuid-sandbox']
-            )
-            
-            context = await browser.new_context()
-            page = await context.new_page()
-            
-            await page.goto(url, wait_until='domcontentloaded', timeout=45000)
-            await page.wait_for_timeout(4000)
-            
-            # Variables
-            total_general = 0.0
-            items = []
-            anexos = []
-            
-            # EXTRAER TODO EL CONTENIDO HTML
-            content = await page.content()
-            
-            # ===== EXTRAER ITEMS Y TOTAL =====
-            rows = await page.query_selector_all("table tr")
-            
-            for row in rows:
-                cells = await row.query_selector_all("td")
-                row_text = await row.inner_text()
-                
-                # FILA DE TOTAL
-                if "TOTAL:" in row_text.upper():
-                    if len(cells) >= 2:
-                        try:
-                            # Buscar en las últimas celdas
-                            for i in range(len(cells)-1, max(len(cells)-4, -1), -1):
-                                cell_text = await cells[i].inner_text()
-                                if cell_text and re.search(r'\d', cell_text) and 'USD' not in cell_text.upper():
-                                    val = clean_val(cell_text)
-                                    if val > 0:
-                                        total_general = val
-                                        print(f"✓ Total general: {total_general}")
-                                        break
-                        except Exception as e:
-                            print(f"Error extrayendo total: {e}")
-                    continue
-                
-                # FILAS DE PRODUCTOS (9 columnas)
-                if len(cells) == 9:
-                    try:
-                        numero = (await cells[0].inner_text()).strip()
-                        
-                        if numero and numero.isdigit():
-                            cpc = (await cells[1].inner_text()).strip()
-                            nombre_producto = (await cells[2].inner_text()).strip()
-                            descripcion = (await cells[3].inner_text()).strip()
-                            unidad = (await cells[4].inner_text()).strip()
-                            cantidad = clean_val(await cells[5].inner_text())
-                            v_unitario = clean_val(await cells[6].inner_text())
-                            v_total = clean_val(await cells[7].inner_text())
-                            
-                            items.append({
-                                "numero": numero,
-                                "cpc": cpc,
-                                "desc": f"[{cpc}] {nombre_producto} - {descripcion}",
-                                "unid": unidad,
-                                "cant": cantidad,
-                                "v_unit": v_unitario,
-                                "v_tot": v_total
-                            })
-                            
-                            print(f"✓ Item {numero}: ${v_total}")
-                    except Exception as e:
-                        print(f"Error procesando fila: {e}")
-                        continue
+    def set_current_view(self, val: str): 
+        self.current_view = val
+        
+    def set_nuevo_codigo_proceso(self, val: str): 
+        self.nuevo_codigo_proceso = val
+        
+    def set_nuevo_nombre_proceso(self, val: str): 
+        self.nuevo_nombre_proceso = val
+        
+    def set_categoria_id(self, val: str): 
+        self.categoria_id = val
 
-            # ===== EXTRAER ANEXOS - MÉTODO MEJORADO =====
-            try:
-                # Buscar la sección "ARCHIVO PARA ADJUNTAR SU PROFORMA"
-                # Los anexos están en una tabla específica
-                
-                # Método 1: Buscar por estructura HTML
-                anexo_tables = await page.query_selector_all("table")
-                
-                for table in anexo_tables:
-                    table_text = await table.inner_text()
-                    
-                    # Verificar si es la tabla de anexos
-                    if "ARCHIVO PARA ADJUNTAR" in table_text.upper() or "DESCRIPCIÓN DEL ARCHIVO" in table_text.upper():
-                        print("✓ Tabla de anexos encontrada")
-                        
-                        # Obtener todas las filas
-                        anexo_rows = await table.query_selector_all("tr")
-                        
-                        for arow in anexo_rows:
-                            acells = await arow.query_selector_all("td")
-                            
-                            # La primera celda tiene el nombre del archivo
-                            if len(acells) >= 1:
-                                nombre_archivo = (await acells[0].inner_text()).strip()
-                                
-                                # Filtrar headers y texto no deseado
-                                palabras_excluir = [
-                                    "descripción", "archivo para adjuntar", "descargar archivo",
-                                    "descripción del archivo", ""
-                                ]
-                                
-                                es_valido = (
-                                    nombre_archivo and 
-                                    len(nombre_archivo) > 2 and
-                                    not any(excl in nombre_archivo.lower() for excl in palabras_excluir)
-                                )
-                                
-                                if es_valido:
-                                    # Evitar duplicados
-                                    if not any(a["nombre"] == nombre_archivo for a in anexos):
-                                        anexos.append({
-                                            "nombre": nombre_archivo,
-                                            "url": url
-                                        })
-                                        print(f"✓ Anexo: {nombre_archivo}")
-                
-                # Método 2: Búsqueda con regex en el HTML si no encontró anexos
-                if len(anexos) == 0:
-                    # Buscar patrones comunes de nombres de archivos
-                    anexo_patterns = [
-                        r'PROFORMA',
-                        r'EXPERIENCIA[^\n]*VIDA',
-                        r'HOJA DE VIDA',
-                        r'CERTIFICADO',
-                        r'RUC',
-                    ]
-                    
-                    for pattern in anexo_patterns:
-                        matches = re.finditer(pattern, content, re.IGNORECASE)
-                        for match in matches:
-                            nombre = match.group(0).strip()
-                            if nombre and not any(a["nombre"] == nombre for a in anexos):
-                                anexos.append({
-                                    "nombre": nombre,
-                                    "url": url
-                                })
-                                print(f"✓ Anexo (regex): {nombre}")
-                
-            except Exception as e:
-                print(f"Error extrayendo anexos: {e}")
+    @rx.var
+    def lista_procesos_formateada(self) -> List[Dict[str, Any]]:
+        return [{
+            "id": str(p.id), 
+            "codigo": p.codigo_proceso, 
+            "fecha": p.fecha_creacion.strftime("%Y-%m-%d %H:%M") if p.fecha_creacion else "-"
+        } for p in self.procesos]
 
-            # Cerrar navegador
-            if page:
-                await page.close()
-            if context:
-                await context.close()
-            if browser:
-                await browser.close()
-            
-            resultado = {
-                "total": total_general,
-                "items": items,
-                "anexos": anexos
-            }
-            
-            print(f"✅ RUC {ruc}: {len(items)} items, Total=${total_general}, {len(anexos)} anexos")
-            return resultado
-            
-    except Exception as e:
-        print(f"❌ Error scraping RUC {ruc}: {str(e)}")
+    @rx.var
+    def rucs_unicos(self) -> List[str]:
+        return sorted(list(set(o.ruc_proveedor for o in self.ofertas_actuales)))
+
+    def load_procesos(self):
+        with rx.session() as session:
+            self.procesos = session.exec(select(Proceso).order_by(desc(Proceso.id))).all()
+            self.categorias = session.exec(select(Categoria)).all()
+
+    def crear_proceso(self):
+        if not self.nuevo_codigo_proceso or not self.categoria_id: 
+            return
+        with rx.session() as session:
+            session.add(Proceso(
+                codigo_proceso=self.nuevo_codigo_proceso, 
+                nombre=self.nuevo_nombre_proceso, 
+                fecha_creacion=datetime.now(), 
+                categoria_id=int(self.categoria_id)
+            ))
+            session.commit()
+        self.nuevo_codigo_proceso = ""
+        self.nuevo_nombre_proceso = ""
+        self.load_procesos()
+
+    def eliminar_proceso(self, p_id: str):
+        """Elimina proceso y todos sus datos relacionados en cascada"""
         try:
-            if page: await page.close()
-            if context: await context.close()
-            if browser: await browser.close()
-        except:
-            pass
-        return None
+            with rx.session() as session:
+                barridos = session.exec(
+                    select(Barrido).where(Barrido.proceso_id == int(p_id))
+                ).all()
+                
+                for barrido in barridos:
+                    session.exec(delete(Oferta).where(Oferta.barrido_id == barrido.id))
+                    session.exec(delete(Anexo).where(Anexo.barrido_id == barrido.id))
+                    session.commit()
+                
+                session.exec(delete(Barrido).where(Barrido.proceso_id == int(p_id)))
+                session.commit()
+                
+                proceso = session.get(Proceso, int(p_id))
+                if proceso:
+                    session.delete(proceso)
+                    session.commit()
+                    
+            self.load_procesos()
+            
+        except Exception as e:
+            print(f"Error eliminando proceso: {e}")
+
+    def load_proceso_detalle(self):
+        """Carga el último barrido del proceso"""
+        print(f"[DEBUG] Cargando detalle del proceso {self.proceso_id}")
+        
+        self.ofertas_actuales = []
+        self.anexos_actuales = []
+        
+        with rx.session() as session:
+            proc = session.get(Proceso, self.proceso_id)
+            if proc:
+                self.proceso_url_id = proc.codigo_proceso
+                self.categoria_id = str(proc.categoria_id)
+                
+                ultimo_b = session.exec(
+                    select(Barrido)
+                    .where(Barrido.proceso_id == self.proceso_id)
+                    .order_by(desc(Barrido.id))
+                ).first()
+                
+                if ultimo_b:
+                    print(f"[DEBUG] Último barrido ID: {ultimo_b.id}")
+                    
+                    ofertas = session.exec(
+                        select(Oferta).where(Oferta.barrido_id == ultimo_b.id)
+                    ).all()
+                    
+                    anexos = session.exec(
+                        select(Anexo).where(Anexo.barrido_id == ultimo_b.id)
+                    ).all()
+                    
+                    self.ofertas_actuales = list(ofertas)
+                    self.anexos_actuales = list(anexos)
+                    
+                    print(f"[DEBUG] Cargadas {len(self.ofertas_actuales)} ofertas y {len(self.anexos_actuales)} anexos")
+                else:
+                    print(f"[DEBUG] No hay barridos para este proceso")
+
+    def ir_a_detalle(self, p_id: str):
+        self.proceso_id = int(p_id)
+        self.load_proceso_detalle()
+        self.current_view = "detalle_proceso"
+
+    async def iniciar_scraping(self):
+        """Inicia el scraping con mejor manejo de errores"""
+        print(f"[DEBUG] ===== INICIO SCRAPING =====")
+        print(f"[DEBUG] Proceso ID: {self.proceso_id}")
+        print(f"[DEBUG] Categoría ID: {self.categoria_id}")
+        
+        if not self.categoria_id: 
+            self.scraping_progress = "❌ Selecciona una categoría"
+            print(f"[DEBUG] Error: Sin categoría")
+            return
+            
+        self.is_scraping = True
+        self.scraping_progress = "🔄 Iniciando barrido..."
+        yield
+        
+        barrido_id = None
+        
+        try:
+            # Crear sesión
+            print(f"[DEBUG] Creando barrido...")
+            with rx.session() as session:
+                barrido = Barrido(
+                    proceso_id=self.proceso_id, 
+                    fecha_inicio=datetime.now(), 
+                    estado="en_proceso"
+                )
+                session.add(barrido)
+                session.commit()
+                session.refresh(barrido)
+                barrido_id = barrido.id
+                print(f"[DEBUG] Barrido creado ID: {barrido_id}")
+                
+                # Obtener proveedores
+                provs = session.exec(
+                    select(Proveedor)
+                    .where(Proveedor.categoria_id == int(self.categoria_id))
+                ).all()
+                
+                total_p = len(provs)
+                print(f"[DEBUG] Total proveedores: {total_p}")
+                
+                if total_p == 0:
+                    self.scraping_progress = "⚠️ No hay proveedores en esta categoría"
+                    barrido.estado = "completado"
+                    barrido.fecha_fin = datetime.now()
+                    session.commit()
+                    self.is_scraping = False
+                    yield
+                    return
+
+                exitosos = 0
+                sin_datos = 0
+                errores = 0
+                
+                for i, p in enumerate(provs, 1):
+                    self.scraping_progress = f"({i}/{total_p}) Procesando: {p.ruc}"
+                    print(f"[DEBUG] Procesando proveedor {i}/{total_p}: {p.ruc}")
+                    yield
+                    
+                    try:
+                        # Scraping con timeout
+                        print(f"[DEBUG] Iniciando scraping para {p.ruc}")
+                        res = await asyncio.wait_for(
+                            scrape_proceso(self.proceso_url_id, p.ruc),
+                            timeout=60.0
+                        )
+                        
+                        print(f"[DEBUG] Resultado scraping: {res is not None}")
+                        
+                        if res and res.get("items"):
+                            print(f"[DEBUG] Items encontrados: {len(res['items'])}")
+                            print(f"[DEBUG] Anexos encontrados: {len(res.get('anexos', []))}")
+                            
+                            # Guardar ofertas
+                            for it in res["items"]:
+                                oferta = Oferta(
+                                    barrido_id=barrido_id, 
+                                    ruc_proveedor=p.ruc,
+                                    razon_social=p.nombre or "",
+                                    numero_item=it.get("numero", ""), 
+                                    cpc=it.get("cpc", ""), 
+                                    descripcion_producto=it.get("desc", ""), 
+                                    unidad=it.get("unid", ""), 
+                                    cantidad=it.get("cant", 0.0), 
+                                    valor_unitario=it.get("v_unit", 0.0), 
+                                    valor_total=it.get("v_tot", 0.0),
+                                    fecha_scraping=datetime.now()
+                                )
+                                session.add(oferta)
+                                print(f"[DEBUG] Oferta agregada: Item {it.get('numero')}, Total: {it.get('v_tot')}")
+                            
+                            # Guardar anexos
+                            for an in res.get("anexos", []):
+                                anexo = Anexo(
+                                    barrido_id=barrido_id, 
+                                    ruc_proveedor=p.ruc, 
+                                    nombre_archivo=an.get("nombre", ""), 
+                                    url_archivo=an.get("url", ""),
+                                    fecha_registro=datetime.now()
+                                )
+                                session.add(anexo)
+                                print(f"[DEBUG] Anexo agregado: {an.get('nombre')}")
+                            
+                            session.commit()
+                            print(f"[DEBUG] Datos guardados en BD para {p.ruc}")
+                            
+                            exitosos += 1
+                            self.scraping_progress = f"✅ ({i}/{total_p}) {p.ruc}: {len(res['items'])} items"
+                        else:
+                            sin_datos += 1
+                            self.scraping_progress = f"⚪ ({i}/{total_p}) Sin ofertas: {p.ruc}"
+                            print(f"[DEBUG] Sin datos para {p.ruc}")
+                        
+                        yield
+                            
+                    except asyncio.TimeoutError:
+                        errores += 1
+                        self.scraping_progress = f"⏱️ ({i}/{total_p}) Timeout: {p.ruc}"
+                        print(f"[ERROR] Timeout en {p.ruc}")
+                        yield
+                        
+                    except Exception as e:
+                        errores += 1
+                        self.scraping_progress = f"❌ ({i}/{total_p}) Error: {p.ruc}"
+                        print(f"[ERROR] Exception en {p.ruc}: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                        yield
+                    
+                    # Pausa entre requests
+                    await asyncio.sleep(2)
+                
+                # Finalizar barrido
+                print(f"[DEBUG] Finalizando barrido...")
+                barrido.estado = "completado"
+                barrido.fecha_fin = datetime.now()
+                session.commit()
+                print(f"[DEBUG] Barrido completado")
+                
+            # Recargar datos
+            print(f"[DEBUG] Recargando datos...")
+            self.load_proceso_detalle()
+            self.scraping_progress = f"✅ Completado: {exitosos} exitosos, {sin_datos} sin datos, {errores} errores"
+            print(f"[DEBUG] ===== FIN SCRAPING =====")
+            
+        except Exception as e:
+            self.scraping_progress = f"❌ Error general: {str(e)}"
+            print(f"[ERROR] Error general: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+        finally:
+            self.is_scraping = False
+            print(f"[DEBUG] is_scraping = False")
+            yield
