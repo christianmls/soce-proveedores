@@ -1,5 +1,5 @@
 import reflex as rx
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from ..models import Proceso, Barrido, Oferta, Anexo, Proveedor, Categoria
 from ..state import State
 from sqlmodel import select, desc, delete
@@ -46,7 +46,6 @@ class ProcesosState(State):
             session.commit()
         self.load_procesos()
 
-    # ELIMINAR PROCESO EN CASCADA
     def eliminar_proceso(self, p_id: str):
         with rx.session() as session:
             barridos = session.exec(select(Barrido).where(Barrido.proceso_id == int(p_id))).all()
@@ -54,8 +53,8 @@ class ProcesosState(State):
                 session.exec(delete(Oferta).where(Oferta.barrido_id == b.id))
                 session.exec(delete(Anexo).where(Anexo.barrido_id == b.id))
                 session.delete(b)
-            proceso = session.get(Proceso, int(p_id))
-            if proceso: session.delete(proceso)
+            proc = session.get(Proceso, int(p_id))
+            if proc: session.delete(proc)
             session.commit()
         self.load_procesos()
 
@@ -64,20 +63,13 @@ class ProcesosState(State):
             proc = session.get(Proceso, self.proceso_id)
             if proc:
                 self.proceso_url_id = proc.codigo_proceso
-                self.categoria_id = str(proc.categoria_id)
                 ultimo_b = session.exec(select(Barrido).where(Barrido.proceso_id == self.proceso_id).order_by(desc(Barrido.id))).first()
                 if ultimo_b:
                     self.ofertas_actuales = session.exec(select(Oferta).where(Oferta.barrido_id == ultimo_b.id)).all()
                     self.anexos_actuales = session.exec(select(Anexo).where(Anexo.barrido_id == ultimo_b.id)).all()
 
-    def ir_a_detalle(self, p_id: str):
-        self.proceso_id = int(p_id)
-        self.load_proceso_detalle()
-        self.set_current_view("detalle_proceso")
-
     async def iniciar_scraping(self):
         self.is_scraping = True
-        self.scraping_progress = "Iniciando..."
         yield
         try:
             with rx.session() as session:
@@ -87,25 +79,21 @@ class ProcesosState(State):
                 session.refresh(barrido)
                 
                 provs = session.exec(select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))).all()
-                total = len(provs)
-
                 for i, p in enumerate(provs, 1):
-                    self.scraping_progress = f"({i}/{total}) Procesando: {p.ruc}"
+                    self.scraping_progress = f"({i}/{len(provs)}) Procesando: {p.ruc}"
                     yield
                     res = await scrape_proceso(self.proceso_url_id, p.ruc)
                     if res:
                         for it in res["items"]:
                             session.add(Oferta(
-                                barrido_id=barrido.id, ruc_proveedor=p.ruc, razon_social=res["razon_social"],
-                                numero_item=it["numero"], cpc=it["cpc"], descripcion_producto=it["descripcion"],
-                                unidad=it["unidad"], cantidad=it["cantidad"], valor_unitario=it["v_unit"], valor_total=it["v_total"]
+                                barrido_id=barrido.id, ruc_proveedor=p.ruc, numero_item=it["numero"], 
+                                cpc=it["cpc"], descripcion_producto=it["desc"], unidad=it["unid"], 
+                                cantidad=it["cant"], valor_unitario=it["v_unit"], valor_total=it["v_tot"]
                             ))
                         for an in res["anexos"]:
                             session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
                     session.commit()
-                barrido.fecha_fin = datetime.now()
-                session.commit()
             self.load_proceso_detalle()
             self.scraping_progress = "Finalizado"
         finally:
-            self.is_scraping = False # Asegura que el botón se libere
+            self.is_scraping = False # LIBERA EL BLOQUEO SIEMPRE
