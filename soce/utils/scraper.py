@@ -8,10 +8,20 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
     url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOProformaRegistrada.cpe?id={pid_clean}&ruc={ruc}"
     
     def clean_val(txt: str) -> float:
-        if not txt: return 0.0
-        # Remover USD, puntos de miles (.) y reemplazar coma decimal por punto
-        clean = txt.replace('USD', '').replace('.', '').replace(',', '.').strip()
+        """
+        Limpia valores numéricos del formato ecuatoriano.
+        Ecuador usa: 160.00000 (punto decimal)
+        NO usar coma como decimal.
+        """
+        if not txt: 
+            return 0.0
+        
+        # Remover texto y espacios
+        clean = txt.replace('USD', '').replace('Unidad', '').strip()
+        
+        # Remover todo excepto dígitos y punto
         clean = re.sub(r'[^\d\.]', '', clean)
+        
         try: 
             return float(clean) if clean else 0.0
         except: 
@@ -52,7 +62,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         try:
                             total_text = await cells[-2].inner_text()
                             total_general = clean_val(total_text)
-                            print(f"✓ Total general encontrado: {total_general}")
+                            print(f"✓ Total general: {total_general}")
                         except Exception as e:
                             print(f"Error extrayendo total: {e}")
                     continue
@@ -83,7 +93,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                                 "v_tot": v_total
                             })
                             
-                            print(f"✓ Item {numero}: CPC={cpc}, Total={v_total}")
+                            print(f"✓ Item {numero}: {descripcion[:50]}... = ${v_total}")
                     except Exception as e:
                         print(f"Error procesando fila: {e}")
                         continue
@@ -107,12 +117,13 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                                 if nombre_archivo and \
                                    "Descripción" not in nombre_archivo and \
                                    "ARCHIVO PARA" not in nombre_archivo.upper() and \
+                                   "Descargar" not in nombre_archivo and \
                                    len(nombre_archivo) > 3:
                                     anexos.append({
                                         "nombre": nombre_archivo,
                                         "url": url
                                     })
-                                    print(f"✓ Anexo encontrado: {nombre_archivo}")
+                                    print(f"✓ Anexo: {nombre_archivo}")
             except Exception as e:
                 print(f"Error extrayendo anexos: {e}")
 
@@ -130,7 +141,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                 "anexos": anexos
             }
             
-            print(f"✓ RUC {ruc}: {len(items)} items, Total: {total_general}, Anexos: {len(anexos)}")
+            print(f"✅ RUC {ruc}: {len(items)} items, Total=${total_general}, {len(anexos)} anexos")
             return resultado
             
     except Exception as e:
