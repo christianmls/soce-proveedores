@@ -5,7 +5,9 @@ from typing import Optional, Dict
 async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
     """
     Scraper optimizado para compraspublicas.gob.ec
-    Maneja formato de tabla de 7 columnas y decimales con punto.
+    Corregido para:
+    1. Detectar TOTAL en el footer de la tabla.
+    2. Detectar archivos en sección 'Documentos Anexos' (iconos de descarga).
     """
     url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOProformaRegistrada.cpe?id={proceso_id}&ruc={ruc}"
     
@@ -19,7 +21,6 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             
             page = await browser.new_page()
             
-            # Cargar página
             try:
                 await page.goto(url, wait_until='domcontentloaded', timeout=25000)
             except PlaywrightTimeout:
@@ -30,15 +31,14 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             await page.wait_for_timeout(2000)
             texto_completo = await page.inner_text('body')
             
-            # Validación básica de contenido
             if any(p in texto_completo.lower() for p in ['no se encontr', 'sin datos', 'no existe']):
                 await browser.close()
                 return None
             
             datos = {}
-            
+            datos['ruc'] = ruc 
+
             # ===== 1. DATOS DEL PROVEEDOR =====
-            # Extracción por Regex más flexible
             patterns = {
                 'razon_social': [r'Razón Social[:\s]+([^\n]+)', r'Nombre[:\s]+([^\n]+)'],
                 'correo_electronico': [r'Correo electrónico[:\s]+([^\s\n]+@[^\s\n]+)'],
@@ -48,8 +48,6 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                 'canton': [r'Cantón[:\s]+([^\n]+)'],
                 'direccion': [r'Dirección[:\s]+([^\n]+)']
             }
-
-            datos['ruc'] = ruc # Por defecto el que buscamos
             
             for key, pat_list in patterns.items():
                 for pat in pat_list:
@@ -58,111 +56,105 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         datos[key] = match.group(1).strip()
                         break
             
-            # ===== 2. TABLA DE PRODUCTOS =====
+            # Helper para limpiar números (Manejo de punto decimal)
+            def clean_float(txt):
+                if not txt: return 0.0
+                # Eliminar USD, espacios y comas (si son separadores de miles)
+                t = txt.replace('USD', '').replace('$', '').strip()
+                t = t.replace(',', '') 
+                try:
+                    return float(t)
+                except:
+                    return 0.0
+
+            # ===== 2. TABLA DE PRODUCTOS Y TOTAL =====
             tablas = await page.query_selector_all('table')
             
             for tabla in tablas:
-                # Buscar tabla que tenga "Descripción" y "Valor" en el header
                 header_text = await tabla.inner_text()
                 if not ('descripci' in header_text.lower() and 'valor' in header_text.lower()):
                     continue
                 
                 filas = await tabla.query_selector_all('tr')
                 
-                # Iterar filas (saltando header)
-                for fila in filas[1:]:
-                    celdas = await fila.query_selector_all('td')
+                # A) BUSCAR EL TOTAL (Prioridad alta)
+                # Buscamos específicamente la fila que contiene "TOTAL:"
+                # En tu captura, el total está en la última fila alineado a la derecha
+                total_encontrado = False
+                for fila in reversed(filas): # Buscamos desde abajo hacia arriba
                     texto_fila = await fila.inner_text()
+                    if "TOTAL:" in texto_fila:
+                        # Buscamos la celda que tenga el número
+                        celdas_total = await fila.query_selector_all('td')
+                        for celda in celdas_total:
+                            txt = await celda.inner_text()
+                            # Si parece un número y no es la palabra "TOTAL:"
+                            if any(c.isdigit() for c in txt) and "TOTAL" not in txt:
+                                datos['valor_total'] = clean_float(txt)
+                                total_encontrado = True
+                                break
+                    if total_encontrado: break
 
-                    # Caso especial: Fila de TOTAL al final de la tabla
-                    if 'total' in texto_fila.lower() and len(celdas) < 4:
-                        # Extraer el valor total final si aparece aquí
-                        val_match = re.search(r'([\d\.]+)', texto_fila)
-                        if val_match:
-                            try:
-                                datos['valor_total'] = float(val_match.group(1))
-                            except: pass
-                        continue
+                # B) EXTRACCIÓN DE PRODUCTOS
+                for fila in filas[1:]:
+                    texto_fila = await fila.inner_text()
+                    # Ignorar fila de total si la encontramos aquí
+                    if "TOTAL:" in texto_fila: continue
 
-                    # Estructura esperada (7 columnas):
-                    # [0]No. | [1]CPC | [2]Descripción | [3]Unidad | [4]Cant | [5]V.Unit | [6]V.Total
+                    celdas = await fila.query_selector_all('td')
+                    
+                    # La tabla tiene 7 columnas según tu imagen
                     if len(celdas) >= 6:
                         try:
-                            # Índice 2: Descripción (A veces es columna 1 si no hay CPC, verificamos)
-                            # Estrategia: Buscar la celda más ancha o por posición relativa
-                            
-                            # Ajuste para la tabla mostrada en imagen (7 cols)
-                            idx_desc = 2
-                            idx_und = 3
-                            idx_cant = 4
-                            idx_vunit = 5
-                            idx_vtotal = 6
-                            
-                            # Si hay menos celdas, ajustar índices (a veces "No." no está)
-                            if len(celdas) == 6:
-                                idx_desc = 1; idx_und = 2; idx_cant = 3; idx_vunit = 4; idx_vtotal = 5
+                            # Ajuste dinámico de índices
+                            idx_desc = 2 if len(celdas) >= 7 else 1
+                            idx_und = 3 if len(celdas) >= 7 else 2
+                            idx_cant = 4 if len(celdas) >= 7 else 3
+                            idx_vunit = 5 if len(celdas) >= 7 else 4
+                            idx_vtotal = 6 if len(celdas) >= 7 else 5
 
                             texto_desc = await celdas[idx_desc].inner_text()
                             
-                            # Validar que sea una fila de producto real
-                            if len(texto_desc) > 3 and "total" not in texto_desc.lower():
+                            if len(texto_desc) > 3:
                                 datos['descripcion_producto'] = texto_desc.strip()
                                 datos['unidad'] = (await celdas[idx_und].inner_text()).strip()
-                                
-                                # --- PARSEO DE NÚMEROS (CRÍTICO) ---
-                                # El sitio usa PUNTO para decimales: "278.00000" -> 278.0
-                                def clean_float(txt):
-                                    # Quitar USD y espacios
-                                    t = txt.replace('USD', '').strip()
-                                    # Si hay comas, asumimos que son miles y las quitamos (ej: 1,200.50 -> 1200.50)
-                                    # Pero si el sitio usa formato inglés (1200.50), float() lo entiende directo.
-                                    t = t.replace(',', '') 
-                                    try:
-                                        return float(t)
-                                    except:
-                                        return 0.0
-
                                 datos['cantidad'] = clean_float(await celdas[idx_cant].inner_text())
                                 datos['valor_unitario'] = clean_float(await celdas[idx_vunit].inner_text())
                                 
-                                v_total_linea = clean_float(await celdas[idx_vtotal].inner_text())
+                                # Si falló la búsqueda del total abajo, usamos la suma de líneas
+                                if 'valor_total' not in datos:
+                                    datos['valor_total'] = clean_float(await celdas[idx_vtotal].inner_text())
                                 
-                                # Usar este total si no tenemos uno global
-                                if 'valor_total' not in datos or datos['valor_total'] == 0:
-                                    datos['valor_total'] = v_total_linea
-                                
-                                # Solo tomamos el primer producto principal encontrado
-                                break
-                        except Exception as e:
-                            # print(f"Error parsing row: {e}")
+                                break # Tomamos el primer producto principal
+                        except:
                             continue
                 
-                # Si ya encontramos producto, no mirar más tablas
                 if 'descripcion_producto' in datos:
                     break
 
-            # ===== 3. ARCHIVOS / ANEXOS =====
-            # Buscar enlaces de descarga reales, no solo texto
-            # Buscamos iconos de descarga o links que contengan 'descargar'
-            links_descarga = await page.query_selector_all("a[href*='descargar'], img[src*='download'], img[src*='descargar']")
+            # ===== 3. ARCHIVOS / ANEXOS (Corregido) =====
+            # En tu captura, los archivos tienen un icono azul de descarga.
+            # Suelen ser inputs tipo image o imgs dentro de un enlace.
             
-            # O buscamos en la sección específica "Documentos Anexos"
-            seccion_archivos = await page.query_selector("text='Documentos Anexos'")
+            # Estrategia 1: Buscar en la sección "Documentos Anexos"
+            # Buscamos cualquier input type='image' o img que parezca un botón de descarga
             
-            if links_descarga or seccion_archivos:
-                 # Verificación doble: contar filas en la tabla de anexos si existe
-                 filas_anexos = await page.query_selector_all("table#tablaAnexos tr") # ID hipotético común
-                 if not filas_anexos:
-                     # Búsqueda genérica de tabla con "Descargar"
-                     filas_anexos = await page.query_selector_all("tr:has-text('Descargar')")
-                 
-                 datos['tiene_archivos'] = len(links_descarga) > 0 or len(filas_anexos) > 0
-            else:
-                datos['tiene_archivos'] = False
+            botones_descarga = await page.query_selector_all("input[type='image'], img[src*='download'], img[src*='descargar'], img[src*='ico_descargar']")
+            
+            # Filtramos para asegurarnos que están en la zona de contenidos (evitar header/footer del sitio)
+            datos['tiene_archivos'] = len(botones_descarga) > 0
+            
+            # Estrategia 2 (Respaldo): Buscar texto explícito en filas
+            if not datos['tiene_archivos']:
+                anexos_text = await page.content()
+                if "Documentos Anexos" in anexos_text:
+                    # Si existe la sección y hay filas con "Descargar Archivo"
+                    filas_descarga = await page.query_selector_all("tr:has-text('Descargar Archivo')")
+                    if len(filas_descarga) > 0:
+                        datos['tiene_archivos'] = True
 
             await browser.close()
             
-            # Validación final
             if datos.get('razon_social') or datos.get('valor_total'):
                 return datos
             return None
