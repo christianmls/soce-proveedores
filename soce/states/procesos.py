@@ -21,10 +21,15 @@ class ProcesosState(State):
     ofertas_actuales: List[Oferta] = []
     anexos_actuales: List[Anexo] = []
 
+    # SETTERS EXPLÍCITOS (Evita AttributeError en Vistas)
     def set_current_view(self, view: str): self.current_view = view
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
     def set_categoria_id(self, val: str): self.categoria_id = val
+
+    @rx.var
+    def lista_procesos_formateada(self) -> List[Dict[str, Any]]:
+        return [{"id": str(p.id), "codigo": p.codigo_proceso, "fecha": p.fecha_creacion.strftime("%Y-%m-%d %H:%M") if p.fecha_creacion else "-"} for p in self.procesos]
 
     @rx.var
     def rucs_unicos(self) -> List[str]:
@@ -35,11 +40,25 @@ class ProcesosState(State):
             self.procesos = session.exec(select(Proceso).order_by(desc(Proceso.id))).all()
             self.categorias = session.exec(select(Categoria)).all()
 
+    # MÉTODO CRÍTICO: CREAR PROCESO
+    def crear_proceso(self):
+        if not self.nuevo_codigo_proceso or not self.categoria_id: return
+        with rx.session() as session:
+            session.add(Proceso(
+                codigo_proceso=self.nuevo_codigo_proceso, 
+                nombre=self.nuevo_nombre_proceso, 
+                fecha_creacion=datetime.now(), 
+                categoria_id=int(self.categoria_id)
+            ))
+            session.commit()
+        self.load_procesos()
+
     def load_proceso_detalle(self):
         with rx.session() as session:
             proc = session.get(Proceso, self.proceso_id)
             if proc:
                 self.proceso_url_id = proc.codigo_proceso
+                self.categoria_id = str(proc.categoria_id)
                 ultimo_b = session.exec(select(Barrido).where(Barrido.proceso_id == self.proceso_id).order_by(desc(Barrido.id))).first()
                 if ultimo_b:
                     self.ofertas_actuales = session.exec(select(Oferta).where(Oferta.barrido_id == ultimo_b.id)).all()
@@ -66,23 +85,18 @@ class ProcesosState(State):
                     yield
                     res = await scrape_proceso(self.proceso_url_id, p.ruc)
                     if res:
-                        # Guardar Ítems
                         for it in res["items"]:
-                            # Unimos CPC y Desc para no perder información
-                            desc_completa = f"[{it['cpc']}] {it['cpc_descripcion']} - {it['descripcion']}"
+                            desc_full = f"[{it['cpc']}] {it['cpc_descripcion']} - {it['descripcion']}"
                             session.add(Oferta(
                                 barrido_id=barrido.id, ruc_proveedor=p.ruc, razon_social=res["razon_social"],
-                                numero_item=it["numero"], cpc=it["cpc"], descripcion_producto=desc_completa,
+                                numero_item=it["numero"], cpc=it["cpc"], descripcion_producto=desc_full,
                                 unidad=it["unidad"], cantidad=it["cantidad"], valor_unitario=it["v_unit"], valor_total=it["v_total"]
                             ))
-                        # Guardar Anexos
                         for an in res["anexos"]:
-                            session.add(Anexo(
-                                barrido_id=barrido.id, ruc_proveedor=p.ruc, 
-                                nombre_archivo=an["nombre"], url_archivo=an["url"]
-                            ))
+                            session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
                     session.commit()
                 barrido.fecha_fin = datetime.now()
+                barrido.estado = "completado"
                 session.commit()
             self.load_proceso_detalle()
         finally:
