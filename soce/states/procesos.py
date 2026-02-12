@@ -32,7 +32,6 @@ class ProcesosState(State):
 
     @rx.var
     def rucs_unicos(self) -> List[str]:
-        # Devuelve los RUCs de las ofertas cargadas para generar las tarjetas
         return sorted(list(set(o.ruc_proveedor for o in self.ofertas_actuales)))
 
     def load_procesos(self):
@@ -53,7 +52,6 @@ class ProcesosState(State):
             if proc:
                 self.proceso_url_id = proc.codigo_proceso
                 self.categoria_id = str(proc.categoria_id)
-                # Buscamos el último barrido exitoso
                 ultimo_b = session.exec(select(Barrido).where(Barrido.proceso_id == self.proceso_id).order_by(desc(Barrido.id))).first()
                 if ultimo_b:
                     self.ofertas_actuales = session.exec(select(Oferta).where(Oferta.barrido_id == ultimo_b.id)).all()
@@ -67,7 +65,6 @@ class ProcesosState(State):
     async def iniciar_scraping(self):
         self.is_scraping = True
         self.scraping_progress = "Iniciando..."
-        self.ofertas_actuales = [] # Limpiar vista previa
         yield
         try:
             with rx.session() as session:
@@ -84,6 +81,9 @@ class ProcesosState(State):
                     yield
                     res = await scrape_proceso(self.proceso_url_id, p.ruc)
                     if res:
+                        if not res["items"]:
+                            print(f"ALERTA: Proforma de {p.ruc} detectada pero con 0 ítems extraídos.")
+                        
                         for it in res["items"]:
                             session.add(Oferta(
                                 barrido_id=barrido.id, ruc_proveedor=p.ruc, razon_social=res["razon_social"],
@@ -93,14 +93,10 @@ class ProcesosState(State):
                         for an in res["anexos"]:
                             session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
                     session.commit()
+                
                 barrido.fecha_fin = datetime.now()
-                barrido.estado = "completado"
                 session.commit()
-            
-            # Recargar los datos inmediatamente al terminar
             self.load_proceso_detalle()
-            self.scraping_progress = "Finalizado"
-        except Exception as e:
-            self.scraping_progress = f"Error: {e}"
         finally:
             self.is_scraping = False
+            self.scraping_progress = "Barrido finalizado"
