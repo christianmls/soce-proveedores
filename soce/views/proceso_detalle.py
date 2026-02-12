@@ -36,7 +36,7 @@ def oferta_card(ruc: str):
                         rx.link(rx.badge(rx.icon("download", size=14), a.nombre_archivo, color_scheme="blue", cursor="pointer"), href=a.url_archivo, is_external=True)
                     )
                 ),
-                wrap="wrap"
+                wrap="wrap", spacing="2"
             ),
             width="100%", spacing="2"
         ),
@@ -48,7 +48,7 @@ def proceso_detalle_view():
         rx.button("Volver", on_click=lambda: ProcesosState.set_current_view("procesos"), variant="ghost"),
         rx.card(
             rx.vstack(
-                rx.heading(f"Detalle Proceso: {ProcesosState.proceso_url_id}", size="5"),
+                rx.heading(f"Proceso: {ProcesosState.proceso_url_id}", size="5"),
                 rx.hstack(
                     rx.button(rx.cond(ProcesosState.is_scraping, rx.spinner(size="1"), "▶️ Iniciar Barrido"), 
                               on_click=ProcesosState.iniciar_scraping, disabled=ProcesosState.is_scraping, color_scheme="grass"),

@@ -46,19 +46,16 @@ class ProcesosState(State):
             session.commit()
         self.load_procesos()
 
-    # BOTÓN ELIMINAR PROCESO
+    # ELIMINAR PROCESO EN CASCADA
     def eliminar_proceso(self, p_id: str):
         with rx.session() as session:
-            # Primero eliminamos barridos relacionados (esto cascada en DB si está configurado, o manual aquí)
             barridos = session.exec(select(Barrido).where(Barrido.proceso_id == int(p_id))).all()
             for b in barridos:
                 session.exec(delete(Oferta).where(Oferta.barrido_id == b.id))
                 session.exec(delete(Anexo).where(Anexo.barrido_id == b.id))
                 session.delete(b)
-            
             proceso = session.get(Proceso, int(p_id))
-            if proceso:
-                session.delete(proceso)
+            if proceso: session.delete(proceso)
             session.commit()
         self.load_procesos()
 
@@ -67,6 +64,7 @@ class ProcesosState(State):
             proc = session.get(Proceso, self.proceso_id)
             if proc:
                 self.proceso_url_id = proc.codigo_proceso
+                self.categoria_id = str(proc.categoria_id)
                 ultimo_b = session.exec(select(Barrido).where(Barrido.proceso_id == self.proceso_id).order_by(desc(Barrido.id))).first()
                 if ultimo_b:
                     self.ofertas_actuales = session.exec(select(Oferta).where(Oferta.barrido_id == ultimo_b.id)).all()
@@ -79,6 +77,7 @@ class ProcesosState(State):
 
     async def iniciar_scraping(self):
         self.is_scraping = True
+        self.scraping_progress = "Iniciando..."
         yield
         try:
             with rx.session() as session:
@@ -88,8 +87,10 @@ class ProcesosState(State):
                 session.refresh(barrido)
                 
                 provs = session.exec(select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))).all()
+                total = len(provs)
+
                 for i, p in enumerate(provs, 1):
-                    self.scraping_progress = f"({i}/{len(provs)}) Consultando: {p.ruc}"
+                    self.scraping_progress = f"({i}/{total}) Procesando: {p.ruc}"
                     yield
                     res = await scrape_proceso(self.proceso_url_id, p.ruc)
                     if res:
@@ -105,6 +106,6 @@ class ProcesosState(State):
                 barrido.fecha_fin = datetime.now()
                 session.commit()
             self.load_proceso_detalle()
-        finally:
-            self.is_scraping = False
             self.scraping_progress = "Finalizado"
+        finally:
+            self.is_scraping = False # Asegura que el botón se libere
