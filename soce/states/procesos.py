@@ -21,7 +21,7 @@ class ProcesosState(State):
     ofertas_actuales: List[Oferta] = []
     anexos_actuales: List[Anexo] = []
 
-    # --- SETTERS EXPLÍCITOS ---
+    # --- SETTERS MANUALES ---
     def set_current_view(self, view: str): self.current_view = view
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
@@ -41,7 +41,7 @@ class ProcesosState(State):
             self.categorias = session.exec(select(Categoria)).all()
 
     def crear_proceso(self):
-        if not self.nuevo_codigo_proceso or not self.categoria_id: return
+        if not self.nuevo_codigo_proceso: return
         with rx.session() as session:
             session.add(Proceso(codigo_proceso=self.nuevo_codigo_proceso, nombre=self.nuevo_nombre_proceso, fecha_creacion=datetime.now(), categoria_id=int(self.categoria_id)))
             session.commit()
@@ -65,6 +65,7 @@ class ProcesosState(State):
 
     async def iniciar_scraping(self):
         self.is_scraping = True
+        self.scraping_progress = "Iniciando..."
         yield
         try:
             with rx.session() as session:
@@ -90,6 +91,8 @@ class ProcesosState(State):
                         for an in res["anexos"]:
                             session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
                     session.commit()
+                
+                barrido.estado = "completado"
                 barrido.fecha_fin = datetime.now()
                 session.commit()
             self.load_proceso_detalle()

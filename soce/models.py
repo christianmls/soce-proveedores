@@ -31,11 +31,9 @@ class Barrido(rx.Model, table=True):
     fecha_inicio: Optional[datetime] = None
     fecha_fin: Optional[datetime] = None
     estado: str = "en_proceso"
-    total_proveedores: int = 0
-    exitosos: int = 0
 
 class Oferta(rx.Model, table=True):
-    """Guarda cada fila de la tabla de la web (Columnas 1-7)"""
+    """Guarda cada fila de la proforma (Columnas 1-7)"""
     barrido_id: int = Field(foreign_key="barrido.id")
     ruc_proveedor: str
     razon_social: Optional[str] = ""
@@ -49,9 +47,9 @@ class Oferta(rx.Model, table=True):
     fecha_scraping: Optional[datetime] = None
 
 class Anexo(rx.Model, table=True):
-    """Tabla para documentos adjuntos con enlace de descarga"""
+    """Almacena los links de descarga detectados"""
     barrido_id: int = Field(foreign_key="barrido.id")
     ruc_proveedor: str
     nombre_archivo: str
-    url_archivo: str # <--- NUEVO CAMPO PARA EL LINK
+    url_archivo: str
     fecha_registro: datetime = Field(default_factory=datetime.now)

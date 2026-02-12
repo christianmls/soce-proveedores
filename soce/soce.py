@@ -11,7 +11,6 @@ def sidebar_item(text: str, icon: str, page_value: str) -> rx.Component:
         variant=rx.cond(ProcesosState.current_view == page_value, "solid", "ghost"),
         color_scheme="grass", width="100%", justify="start",
         on_click=lambda: ProcesosState.set_current_view(page_value), 
-        cursor="pointer",
     )
 
 def index() -> rx.Component:
