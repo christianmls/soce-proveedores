@@ -205,20 +205,8 @@ def procesos_view() -> rx.Component:
                     ProcesosState.barridos,
                     lambda b: rx.table.row(
                         rx.table.cell(b.id.to_string()),
-                        rx.table.cell(
-                            rx.cond(
-                                b.fecha_inicio,
-                                rx.text(b.fecha_inicio.strftime("%Y-%m-%d %H:%M") if b.fecha_inicio else "-"),
-                                rx.text("-")
-                            )
-                        ),
-                        rx.table.cell(
-                            rx.cond(
-                                b.fecha_fin,
-                                rx.text(b.fecha_fin.strftime("%Y-%m-%d %H:%M") if b.fecha_fin else "-"),
-                                rx.text("-")
-                            )
-                        ),
+                        rx.table.cell(b.fecha_inicio.to_string()),
+                        rx.table.cell(b.fecha_fin.to_string()),
                         rx.table.cell(b.total_proveedores.to_string()),
                         rx.table.cell(b.exitosos.to_string()),
                         rx.table.cell(b.sin_datos.to_string()),
@@ -240,7 +228,7 @@ def procesos_view() -> rx.Component:
                         rx.table.cell(
                             rx.button(
                                 "Ver Ofertas",
-                                on_click=lambda: ProcesosState.set_barrido_seleccionado(b.id.to_string()),
+                                on_click=lambda bid=b.id: ProcesosState.set_barrido_seleccionado(bid.to_string()),
                                 size="1",
                                 variant="soft"
                             )
@@ -268,7 +256,7 @@ def procesos_view() -> rx.Component:
                     lambda o: rx.cond(
                         o.estado == "procesado",
                         oferta_detalle_card(o),
-                        rx.box()  # No mostrar los que no tienen datos
+                        rx.box()
                     )
                 ),
                 width="100%"
