@@ -25,6 +25,7 @@ def procesos_view():
                 rx.table.cell(p["codigo"]),
                 rx.table.cell(rx.hstack(
                     rx.button(rx.icon("eye"), on_click=lambda: ProcesosState.ir_a_detalle(p["id"]), size="1"),
+                    # BOTÓN ELIMINAR PROCESO
                     rx.button(rx.icon("trash-2"), on_click=lambda: ProcesosState.eliminar_proceso(p["id"]), size="1", color_scheme="red")
                 ))
             )))

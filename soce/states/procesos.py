@@ -46,6 +46,7 @@ class ProcesosState(State):
             session.commit()
         self.load_procesos()
 
+    # ELIMINACIÓN EN CASCADA MANUAL
     def eliminar_proceso(self, p_id: str):
         with rx.session() as session:
             barridos = session.exec(select(Barrido).where(Barrido.proceso_id == int(p_id))).all()
@@ -84,7 +85,7 @@ class ProcesosState(State):
                 session.refresh(barrido)
                 provs = session.exec(select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))).all()
                 for i, p in enumerate(provs, 1):
-                    self.scraping_progress = f"({i}/{len(provs)}) Procesando: {p.ruc}"
+                    self.scraping_progress = f"({i}/{len(provs)}) Procesando RUC: {p.ruc}"
                     yield
                     res = await scrape_proceso(self.proceso_url_id, p.ruc)
                     if res:
@@ -100,4 +101,4 @@ class ProcesosState(State):
             self.load_proceso_detalle()
             self.scraping_progress = "Finalizado"
         finally:
-            self.is_scraping = False
+            self.is_scraping = False # Desbloquea la UI pase lo que pase
