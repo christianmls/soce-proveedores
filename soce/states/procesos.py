@@ -21,7 +21,6 @@ class ProcesosState(State):
     ofertas_actuales: List[Oferta] = []
     anexos_actuales: List[Anexo] = []
 
-    # --- SETTERS MANUALES ---
     def set_current_view(self, view: str): self.current_view = view
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
@@ -33,7 +32,8 @@ class ProcesosState(State):
 
     @rx.var
     def rucs_unicos(self) -> List[str]:
-        return list(set(o.ruc_proveedor for o in self.ofertas_actuales))
+        # Devuelve los RUCs de las ofertas cargadas para generar las tarjetas
+        return sorted(list(set(o.ruc_proveedor for o in self.ofertas_actuales)))
 
     def load_procesos(self):
         with rx.session() as session:
@@ -41,7 +41,7 @@ class ProcesosState(State):
             self.categorias = session.exec(select(Categoria)).all()
 
     def crear_proceso(self):
-        if not self.nuevo_codigo_proceso: return
+        if not self.nuevo_codigo_proceso or not self.categoria_id: return
         with rx.session() as session:
             session.add(Proceso(codigo_proceso=self.nuevo_codigo_proceso, nombre=self.nuevo_nombre_proceso, fecha_creacion=datetime.now(), categoria_id=int(self.categoria_id)))
             session.commit()
@@ -53,6 +53,7 @@ class ProcesosState(State):
             if proc:
                 self.proceso_url_id = proc.codigo_proceso
                 self.categoria_id = str(proc.categoria_id)
+                # Buscamos el último barrido exitoso
                 ultimo_b = session.exec(select(Barrido).where(Barrido.proceso_id == self.proceso_id).order_by(desc(Barrido.id))).first()
                 if ultimo_b:
                     self.ofertas_actuales = session.exec(select(Oferta).where(Oferta.barrido_id == ultimo_b.id)).all()
@@ -66,6 +67,7 @@ class ProcesosState(State):
     async def iniciar_scraping(self):
         self.is_scraping = True
         self.scraping_progress = "Iniciando..."
+        self.ofertas_actuales = [] # Limpiar vista previa
         yield
         try:
             with rx.session() as session:
@@ -91,11 +93,14 @@ class ProcesosState(State):
                         for an in res["anexos"]:
                             session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
                     session.commit()
-                
-                barrido.estado = "completado"
                 barrido.fecha_fin = datetime.now()
+                barrido.estado = "completado"
                 session.commit()
+            
+            # Recargar los datos inmediatamente al terminar
             self.load_proceso_detalle()
+            self.scraping_progress = "Finalizado"
+        except Exception as e:
+            self.scraping_progress = f"Error: {e}"
         finally:
             self.is_scraping = False
-            self.scraping_progress = "Finalizado"

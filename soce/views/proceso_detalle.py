@@ -35,7 +35,7 @@ def oferta_card(ruc: str):
                     ProcesosState.anexos_actuales,
                     lambda a: rx.cond(
                         a.ruc_proveedor == ruc, 
-                        rx.link(rx.badge(rx.icon("download", size=14), a.nombre_archivo, color_scheme="blue"), href=a.url_archivo, is_external=True)
+                        rx.link(rx.badge(rx.icon("download", size=14), a.nombre_archivo, color_scheme="blue", cursor="pointer"), href=a.url_archivo, is_external=True)
                     )
                 ),
                 wrap="wrap"
@@ -50,16 +50,20 @@ def proceso_detalle_view():
         rx.button("Volver", on_click=lambda: ProcesosState.set_current_view("procesos"), variant="ghost"),
         rx.card(
             rx.vstack(
-                rx.heading(f"Proceso: {ProcesosState.proceso_url_id}", size="5"),
-                rx.button(
-                    rx.cond(ProcesosState.is_scraping, rx.spinner(size="1"), "▶️ Iniciar Barrido"),
-                    on_click=ProcesosState.iniciar_scraping,
-                    disabled=ProcesosState.is_scraping,
-                    color_scheme="grass"
-                ),
-                rx.text(ProcesosState.scraping_progress, weight="bold")
+                rx.heading(f"Detalle Proceso: {ProcesosState.proceso_url_id}", size="5"),
+                rx.hstack(
+                    rx.button(
+                        rx.cond(ProcesosState.is_scraping, rx.spinner(size="1"), "▶️ Iniciar Barrido"),
+                        on_click=ProcesosState.iniciar_scraping,
+                        disabled=ProcesosState.is_scraping,
+                        color_scheme="grass"
+                    ),
+                    rx.text(ProcesosState.scraping_progress, weight="bold"),
+                    spacing="4"
+                )
             ), width="100%"
         ),
+        # Se muestra solo si hay ofertas cargadas
         rx.foreach(ProcesosState.rucs_unicos, oferta_card),
         width="100%", padding="4", spacing="4"
     )

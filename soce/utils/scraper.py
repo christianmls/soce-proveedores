@@ -6,6 +6,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
     pid_clean = proceso_id.rstrip(',')
     url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOProformaRegistrada.cpe?id={pid_clean}&ruc={ruc}"
     
+    print(f"--- DEBUG: Iniciando scrap para RUC {ruc} ---")
     browser = None
     try:
         async with async_playwright() as p:
@@ -14,14 +15,17 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             await page.goto(url, wait_until='domcontentloaded', timeout=30000)
             await page.wait_for_timeout(3000)
             
-            # 1. VALIDACIÓN: Si el total es 0 o aparece banner de error, descartamos
+            # 1. VALIDACIÓN DE TOTAL
             try:
                 total_text = await page.locator("td:has-text('TOTAL:') + td").inner_text()
                 total_val = float(re.sub(r'[^\d\.]', '', total_text.replace(',', '')))
+                print(f"DEBUG: Total detectado: {total_val}")
                 if total_val <= 0:
+                    print(f"DEBUG: Oferta vacía o con error (Total 0). Saltando.")
                     await browser.close()
                     return None
-            except:
+            except Exception as e:
+                print(f"DEBUG: No se encontró el Total o la proforma: {e}")
                 await browser.close()
                 return None
 
@@ -29,8 +33,9 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             texto_completo = await page.inner_text('body')
             razon_match = re.search(r'Razón Social[:\s]+([^\n]+)', texto_completo)
             razon_social = razon_match.group(1).strip() if razon_match else "N/D"
+            print(f"DEBUG: Razón Social: {razon_social}")
 
-            # 3. EXTRACCIÓN DE ÍTEMS (Col 1-7)
+            # 3. ÍTEMS (Col 1-7)
             items = []
             rows = await page.query_selector_all("table tr")
             for row in rows:
@@ -49,8 +54,9 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                             "v_total": float(re.sub(r'[^\d\.]', '', (await cells[6].inner_text()).replace(',', '')))
                         })
                     except: continue
+            print(f"DEBUG: Se encontraron {len(items)} items en la tabla.")
 
-            # 4. ANEXOS CON URL
+            # 4. ANEXOS
             anexos = []
             anexo_rows = await page.query_selector_all("tr:has(input[type='image'])")
             for a_row in anexo_rows:
@@ -58,13 +64,14 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                 btn = await a_row.query_selector("input[type='image']")
                 if len(a_cells) >= 1 and btn:
                     nombre = (await a_cells[0].inner_text()).strip()
-                    # Link de descarga
                     link = await btn.get_attribute("src") or url
                     if nombre and "Archivo" not in nombre:
                         anexos.append({"nombre": nombre, "url": link})
+            print(f"DEBUG: Se encontraron {len(anexos)} anexos.")
 
             await browser.close()
             return {"razon_social": razon_social, "items": items, "anexos": anexos}
-    except Exception:
+    except Exception as e:
+        print(f"DEBUG ERROR SCRAPER: {e}")
         if browser: await browser.close()
         return None
