@@ -27,17 +27,6 @@ class ProcesosState(State):
     def set_categoria_id(self, val: str): self.categoria_id = val
 
     @rx.var
-    def lista_procesos_formateada(self) -> List[Dict[str, Any]]:
-        return [
-            {
-                "id": str(p.id), 
-                "codigo": p.codigo_proceso, 
-                "fecha": p.fecha_creacion.strftime("%Y-%m-%d %H:%M") if p.fecha_creacion else "-"
-            } 
-            for p in self.procesos
-        ]
-
-    @rx.var
     def rucs_unicos(self) -> List[str]:
         return sorted(list(set(o.ruc_proveedor for o in self.ofertas_actuales)))
 
@@ -45,18 +34,6 @@ class ProcesosState(State):
         with rx.session() as session:
             self.procesos = session.exec(select(Proceso).order_by(desc(Proceso.id))).all()
             self.categorias = session.exec(select(Categoria)).all()
-
-    def crear_proceso(self):
-        if not self.nuevo_codigo_proceso or not self.categoria_id: return
-        with rx.session() as session:
-            session.add(Proceso(
-                codigo_proceso=self.nuevo_codigo_proceso, 
-                nombre=self.nuevo_nombre_proceso, 
-                fecha_creacion=datetime.now(), 
-                categoria_id=int(self.categoria_id)
-            ))
-            session.commit()
-        self.load_procesos()
 
     def load_proceso_detalle(self):
         with rx.session() as session:
@@ -85,18 +62,25 @@ class ProcesosState(State):
                 
                 provs = session.exec(select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))).all()
                 for i, p in enumerate(provs, 1):
-                    self.scraping_progress = f"({i}/{len(provs)}) Consultando: {p.ruc}"
+                    self.scraping_progress = f"({i}/{len(provs)}) Procesando: {p.ruc}"
                     yield
                     res = await scrape_proceso(self.proceso_url_id, p.ruc)
                     if res:
+                        # Guardar Ítems
                         for it in res["items"]:
+                            # Unimos CPC y Desc para no perder información
+                            desc_completa = f"[{it['cpc']}] {it['cpc_descripcion']} - {it['descripcion']}"
                             session.add(Oferta(
                                 barrido_id=barrido.id, ruc_proveedor=p.ruc, razon_social=res["razon_social"],
-                                numero_item=it["numero"], cpc=it["cpc"], descripcion_producto=it["descripcion"],
+                                numero_item=it["numero"], cpc=it["cpc"], descripcion_producto=desc_completa,
                                 unidad=it["unidad"], cantidad=it["cantidad"], valor_unitario=it["v_unit"], valor_total=it["v_total"]
                             ))
+                        # Guardar Anexos
                         for an in res["anexos"]:
-                            session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
+                            session.add(Anexo(
+                                barrido_id=barrido.id, ruc_proveedor=p.ruc, 
+                                nombre_archivo=an["nombre"], url_archivo=an["url"]
+                            ))
                     session.commit()
                 barrido.fecha_fin = datetime.now()
                 session.commit()
