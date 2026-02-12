@@ -23,10 +23,15 @@ def procesos_view():
         ),
         rx.table.root(
             rx.table.header(rx.table.row(rx.table.column_header_cell("ID"), rx.table.column_header_cell("Código"), rx.table.column_header_cell("Fecha"), rx.table.column_header_cell("Acción"))),
-            rx.table.body(rx.foreach(ProcesosState.lista_procesos_formateada, lambda p: rx.table.row(
-                rx.table.cell(p["id"]), rx.table.cell(p["codigo"]), rx.table.cell(p["fecha"]),
-                rx.table.cell(rx.button(rx.icon("eye"), on_click=lambda: ProcesosState.ir_a_detalle(p["id"]), size="1"))
-            ))),
+            rx.table.body(
+                rx.foreach(
+                    ProcesosState.lista_procesos_formateada, 
+                    lambda p: rx.table.row(
+                        rx.table.cell(p["id"]), rx.table.cell(p["codigo"]), rx.table.cell(p["fecha"]),
+                        rx.table.cell(rx.button(rx.icon("eye"), on_click=lambda: ProcesosState.ir_a_detalle(p["id"]), size="1"))
+                    )
+                )
+            ),
             width="100%"
         ),
         on_mount=ProcesosState.load_procesos,

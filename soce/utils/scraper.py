@@ -7,17 +7,17 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
     url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOProformaRegistrada.cpe?id={pid_clean}&ruc={ruc}"
     
     print(f"--- DEBUG: Iniciando scrap para RUC {ruc} ---")
-    browser = None
     
-    def clean_float(txt: str) -> float:
+    def clean_val(txt: str) -> float:
         if not txt: return 0.0
-        # Elimina "USD.", comas y cualquier letra para dejar solo números y punto
+        # Elimina USD, comas y deja solo números y punto
         clean = re.sub(r'[^\d\.]', '', txt.replace(',', ''))
         try:
             return float(clean) if clean else 0.0
         except:
             return 0.0
 
+    browser = None
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, args=['--no-sandbox'])
@@ -25,11 +25,10 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             await page.goto(url, wait_until='domcontentloaded', timeout=30000)
             await page.wait_for_timeout(3500)
             
-            # Validación de Proforma
+            # Validación: Total > 0
             try:
                 total_text = await page.locator("td:has-text('TOTAL:') + td").inner_text()
-                total_val = clean_float(total_text)
-                if total_val <= 0:
+                if clean_val(total_text) <= 0:
                     await browser.close()
                     return None
             except:
@@ -37,35 +36,32 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                 return None
 
             # Razón Social
-            texto_completo = await page.inner_text('body')
-            razon_match = re.search(r'Razón Social[:\s]+([^\n]+)', texto_completo)
-            razon_social = razon_match.group(1).strip() if razon_match else "N/D"
+            texto = await page.inner_text('body')
+            razon = re.search(r'Razón Social[:\s]+([^\n]+)', texto)
+            razon_social = razon.group(1).strip() if razon else "N/D"
 
-            # Extracción de ítems (Blindada contra "USD.")
+            # Ítems (1-7)
             items = []
             rows = await page.query_selector_all("table tr")
-            for i, row in enumerate(rows):
+            for row in rows:
                 cells = await row.query_selector_all("td")
                 if len(cells) >= 7:
-                    txt = await row.inner_text()
-                    if "TOTAL" in txt or "Descripción" in txt or "No." in txt:
+                    txt_fila = await row.inner_text()
+                    if "TOTAL" in txt_fila or "Descripción" in txt_fila or "No." in txt_fila:
                         continue
-                    
                     try:
-                        # Extraemos los datos usando el helper clean_float
                         items.append({
                             "numero": (await cells[0].inner_text()).strip(),
                             "cpc": (await cells[1].inner_text()).strip(),
                             "descripcion": (await cells[2].inner_text()).strip(),
                             "unidad": (await cells[3].inner_text()).strip(),
-                            "cantidad": clean_float(await cells[4].inner_text()),
-                            "v_unit": clean_float(await cells[5].inner_text()),
-                            "v_total": clean_float(await cells[6].inner_text())
+                            "cantidad": clean_val(await cells[4].inner_text()),
+                            "v_unit": clean_val(await cells[5].inner_text()),
+                            "v_total": clean_val(await cells[6].inner_text())
                         })
-                    except Exception as e:
-                        print(f"DEBUG: Error fila {i}: {e}")
-            
-            # Extracción de anexos
+                    except: continue
+
+            # Anexos
             anexos = []
             iconos = await page.query_selector_all("input[type='image'], img[src*='descargar']")
             for icono in iconos:
@@ -74,13 +70,13 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                     celdas = await fila.query_selector_all("td")
                     if celdas:
                         nombre = (await celdas[0].inner_text()).strip()
+                        link = await icono.get_attribute("src") or url
                         if nombre and "Archivo" not in nombre:
-                            anexos.append({"nombre": nombre, "url": url})
+                            anexos.append({"nombre": nombre, "url": link})
                 except: continue
-            
+
             await browser.close()
             return {"razon_social": razon_social, "items": items, "anexos": anexos}
-    except Exception as e:
-        print(f"DEBUG ERROR: {e}")
+    except Exception:
         if browser: await browser.close()
         return None
