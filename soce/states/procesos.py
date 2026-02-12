@@ -5,6 +5,7 @@ from ..state import State
 from sqlmodel import select, desc, delete
 from datetime import datetime
 from ..utils.scraper import scrape_proceso
+import asyncio
 
 class ProcesosState(State):
     current_view: str = "procesos"
@@ -44,6 +45,8 @@ class ProcesosState(State):
         with rx.session() as session:
             session.add(Proceso(codigo_proceso=self.nuevo_codigo_proceso, nombre=self.nuevo_nombre_proceso, fecha_creacion=datetime.now(), categoria_id=int(self.categoria_id)))
             session.commit()
+        self.nuevo_codigo_proceso = ""
+        self.nuevo_nombre_proceso = ""
         self.load_procesos()
 
     def eliminar_proceso(self, p_id: str):
@@ -59,7 +62,6 @@ class ProcesosState(State):
         self.load_procesos()
 
     def load_proceso_detalle(self):
-        # CRÍTICO: Limpiar datos anteriores para que procesos nuevos no hereden resultados
         self.ofertas_actuales = []
         self.anexos_actuales = []
         
@@ -75,38 +77,109 @@ class ProcesosState(State):
 
     def ir_a_detalle(self, p_id: str):
         self.proceso_id = int(p_id)
-        self.load_proceso_detalle() # Esto ahora limpia las listas antes de cargar
+        self.load_proceso_detalle()
         self.current_view = "detalle_proceso"
 
     async def iniciar_scraping(self):
-        if not self.categoria_id: return
+        if not self.categoria_id: 
+            self.scraping_progress = "❌ Selecciona una categoría"
+            return
+            
         self.is_scraping = True
-        self.scraping_progress = "Iniciando..."
+        self.scraping_progress = "🔄 Iniciando barrido..."
         yield
+        
         try:
             with rx.session() as session:
-                barrido = Barrido(proceso_id=self.proceso_id, fecha_inicio=datetime.now())
+                # Crear barrido
+                barrido = Barrido(proceso_id=self.proceso_id, fecha_inicio=datetime.now(), estado="en_proceso")
                 session.add(barrido)
                 session.commit()
                 session.refresh(barrido)
+                barrido_id = barrido.id
+                
+                # Obtener proveedores
                 provs = session.exec(select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))).all()
                 total_p = len(provs)
+                
+                if total_p == 0:
+                    self.scraping_progress = "⚠️ No hay proveedores en esta categoría"
+                    barrido.estado = "completado"
+                    barrido.fecha_fin = datetime.now()
+                    session.commit()
+                    self.is_scraping = False
+                    yield
+                    return
 
+                exitosos = 0
+                errores = 0
+                
                 for i, p in enumerate(provs, 1):
                     self.scraping_progress = f"({i}/{total_p}) Procesando RUC: {p.ruc}"
                     yield
-                    res = await scrape_proceso(self.proceso_url_id, p.ruc)
-                    if res:
-                        for it in res["items"]:
-                            session.add(Oferta(
-                                barrido_id=barrido.id, ruc_proveedor=p.ruc, numero_item=it["numero"], 
-                                cpc=it["cpc"], descripcion_producto=it["desc"], unidad=it["unid"], 
-                                cantidad=it["cant"], valor_unitario=it["v_unit"], valor_total=it["v_tot"]
-                            ))
-                        for an in res["anexos"]:
-                            session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
-                    session.commit()
+                    
+                    try:
+                        # Timeout de 60 segundos por proveedor
+                        res = await asyncio.wait_for(
+                            scrape_proceso(self.proceso_url_id, p.ruc),
+                            timeout=60.0
+                        )
+                        
+                        if res and res.get("items"):
+                            for it in res["items"]:
+                                session.add(Oferta(
+                                    barrido_id=barrido_id, 
+                                    ruc_proveedor=p.ruc,
+                                    razon_social=p.nombre or "",
+                                    numero_item=it["numero"], 
+                                    cpc=it["cpc"], 
+                                    descripcion_producto=it["desc"], 
+                                    unidad=it["unid"], 
+                                    cantidad=it["cant"], 
+                                    valor_unitario=it["v_unit"], 
+                                    valor_total=it["v_tot"],
+                                    fecha_scraping=datetime.now()
+                                ))
+                            
+                            for an in res.get("anexos", []):
+                                session.add(Anexo(
+                                    barrido_id=barrido_id, 
+                                    ruc_proveedor=p.ruc, 
+                                    nombre_archivo=an["nombre"], 
+                                    url_archivo=an["url"],
+                                    fecha_registro=datetime.now()
+                                ))
+                            
+                            session.commit()
+                            exitosos += 1
+                        else:
+                            self.scraping_progress = f"⚪ ({i}/{total_p}) Sin ofertas: {p.ruc}"
+                            
+                    except asyncio.TimeoutError:
+                        errores += 1
+                        self.scraping_progress = f"⏱️ ({i}/{total_p}) Timeout: {p.ruc}"
+                        yield
+                        
+                    except Exception as e:
+                        errores += 1
+                        self.scraping_progress = f"❌ ({i}/{total_p}) Error: {p.ruc} - {str(e)}"
+                        yield
+                    
+                    # Pausa entre requests
+                    await asyncio.sleep(1)
+                
+                # Finalizar barrido
+                barrido.estado = "completado"
+                barrido.fecha_fin = datetime.now()
+                session.commit()
+                
+            # Recargar datos
             self.load_proceso_detalle()
-            self.scraping_progress = "Finalizado"
+            self.scraping_progress = f"✅ Completado: {exitosos} exitosos, {errores} errores"
+            
+        except Exception as e:
+            self.scraping_progress = f"❌ Error general: {str(e)}"
+            
         finally:
             self.is_scraping = False
+            yield

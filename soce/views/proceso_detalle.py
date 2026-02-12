@@ -8,7 +8,7 @@ def oferta_row(oferta, ruc: str):
         rx.table.row(
             rx.table.cell(oferta.numero_item),
             rx.table.cell(oferta.descripcion_producto),
-            rx.table.cell(f"{oferta.valor_total:,.2f}")
+            rx.table.cell(f"{oferta.valor_total:,.2f}")  # <-- MOSTRAR TOTAL
         ),
         rx.fragment()
     )
@@ -35,13 +35,13 @@ def oferta_card(ruc: str):
         rx.vstack(
             rx.heading(f"Proveedor RUC: {ruc}", size="4", color_scheme="grass"),
             
-            # Tabla de ofertas
+            # Tabla de ofertas CON COLUMNA TOTAL
             rx.table.root(
                 rx.table.header(
                     rx.table.row(
                         rx.table.column_header_cell("No."),
                         rx.table.column_header_cell("Descripción"),
-                        rx.table.column_header_cell("Total")
+                        rx.table.column_header_cell("Total")  # <-- HEADER TOTAL
                     )
                 ),
                 rx.table.body(
