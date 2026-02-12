@@ -34,9 +34,10 @@ def anexo_badge(anexo, ruc: str):
     )
 
 def total_row_for_ruc(ruc: str):
-    """Calcula y muestra el total para un RUC específico"""
-    # Nota: Esto se calcula en el backend, no en el frontend
-    # Por ahora solo mostramos la fila, el cálculo real viene de los datos
+    """Muestra el total para un RUC específico"""
+    # Obtener el total del diccionario computado
+    total = ProcesosState.totales_por_ruc.get(ruc, 0.0)
+    
     return rx.table.row(
         rx.table.cell(""),
         rx.table.cell(
@@ -44,7 +45,12 @@ def total_row_for_ruc(ruc: str):
             text_align="right"
         ),
         rx.table.cell(
-            rx.text("USD.", weight="bold"),
+            rx.hstack(
+                rx.text(f"{total:,.5f}", weight="bold"),
+                rx.text("USD.", weight="bold"),
+                spacing="1",
+                justify="end"
+            ),
             text_align="right"
         ),
         background_color=rx.color("gray", 3)

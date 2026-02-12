@@ -3,13 +3,11 @@ import re
 from typing import Dict, Optional
 import asyncio
 
-
 async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
     pid_clean = proceso_id.rstrip(',')
     url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOProformaRegistrada.cpe?id={pid_clean}&ruc={ruc}"
     
     def clean_val(txt: str) -> float:
-        """Limpia valores numéricos manteniendo el punto decimal"""
         if not txt: 
             return 0.0
         clean = txt.replace('USD', '').replace('Unidad', '').strip()
@@ -40,8 +38,6 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             items = []
             anexos = []
             
-            content = await page.content()
-            
             # ===== EXTRAER ITEMS Y TOTAL =====
             rows = await page.query_selector_all("table tr")
             
@@ -49,20 +45,25 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                 cells = await row.query_selector_all("td")
                 row_text = await row.inner_text()
                 
-                # FILA DE TOTAL
-                if "TOTAL:" in row_text.upper():
-                    if len(cells) >= 2:
-                        try:
+                # FILA DE TOTAL - Búsqueda más específica
+                if "TOTAL:" in row_text.upper() and "**" in row_text:
+                    print(f"✓ Fila TOTAL encontrada: {row_text[:100]}")
+                    # Buscar el número en negrita entre **
+                    total_match = re.search(r'\*\*(\d+\.?\d*)\*\*', row_text)
+                    if total_match:
+                        total_general = float(total_match.group(1))
+                        print(f"✓ Total extraído: {total_general}")
+                    else:
+                        # Fallback: buscar en celdas
+                        if len(cells) >= 2:
                             for i in range(len(cells)-1, max(len(cells)-4, -1), -1):
                                 cell_text = await cells[i].inner_text()
                                 if cell_text and re.search(r'\d', cell_text) and 'USD' not in cell_text.upper():
                                     val = clean_val(cell_text)
                                     if val > 0:
                                         total_general = val
-                                        print(f"✓ Total general: {total_general}")
+                                        print(f"✓ Total (fallback): {total_general}")
                                         break
-                        except Exception as e:
-                            print(f"Error extrayendo total: {e}")
                     continue
                 
                 # FILAS DE PRODUCTOS (9 columnas)
@@ -91,66 +92,51 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                             
                             print(f"✓ Item {numero}: ${v_total}")
                     except Exception as e:
-                        print(f"Error procesando fila: {e}")
                         continue
 
-            # ===== EXTRAER ANEXOS =====
+            # ===== EXTRAER ANEXOS - MEJORADO =====
             try:
-                anexo_tables = await page.query_selector_all("table")
+                # Buscar todas las tablas con "ARCHIVO"
+                all_tables = await page.query_selector_all("table")
                 
-                for table in anexo_tables:
+                for table in all_tables:
+                    table_html = await table.inner_html()
                     table_text = await table.inner_text()
                     
-                    if "ARCHIVO PARA ADJUNTAR" in table_text.upper() or "DESCRIPCIÓN DEL ARCHIVO" in table_text.upper():
-                        print("✓ Tabla de anexos encontrada")
+                    # Solo procesar tablas de anexos
+                    if "ARCHIVO" in table_text.upper() and ("ADJUNTAR" in table_text.upper() or "ADICIONAL" in table_text.upper()):
+                        print(f"✓ Procesando tabla de anexos...")
                         
-                        anexo_rows = await table.query_selector_all("tr")
+                        # Obtener filas
+                        table_rows = await table.query_selector_all("tr")
                         
-                        for arow in anexo_rows:
-                            acells = await arow.query_selector_all("td")
+                        for trow in table_rows:
+                            tcells = await trow.query_selector_all("td")
                             
-                            if len(acells) >= 1:
-                                nombre_archivo = (await acells[0].inner_text()).strip()
+                            # Primera celda = nombre del archivo
+                            if len(tcells) >= 1:
+                                nombre_archivo = (await tcells[0].inner_text()).strip()
                                 
-                                palabras_excluir = [
-                                    "descripción", "archivo para adjuntar", "descargar archivo",
-                                    "descripción del archivo", ""
+                                # Filtros estrictos
+                                excluir = [
+                                    "descripción", "archivo", "descargar", "adjuntar",
+                                    "adicional", "observaciones", "publicación", "opcional"
                                 ]
                                 
+                                # Validar
                                 es_valido = (
-                                    nombre_archivo and 
+                                    nombre_archivo and
                                     len(nombre_archivo) > 2 and
-                                    not any(excl in nombre_archivo.lower() for excl in palabras_excluir)
+                                    not any(exc in nombre_archivo.lower() for exc in excluir) and
+                                    not nombre_archivo.startswith("**")
                                 )
                                 
-                                if es_valido:
-                                    if not any(a["nombre"] == nombre_archivo for a in anexos):
-                                        anexos.append({
-                                            "nombre": nombre_archivo,
-                                            "url": url
-                                        })
-                                        print(f"✓ Anexo: {nombre_archivo}")
-                
-                # Fallback: búsqueda con regex
-                if len(anexos) == 0:
-                    anexo_patterns = [
-                        r'PROFORMA',
-                        r'EXPERIENCIA[^\n]*VIDA',
-                        r'HOJA DE VIDA',
-                        r'CERTIFICADO',
-                        r'RUC',
-                    ]
-                    
-                    for pattern in anexo_patterns:
-                        matches = re.finditer(pattern, content, re.IGNORECASE)
-                        for match in matches:
-                            nombre = match.group(0).strip()
-                            if nombre and not any(a["nombre"] == nombre for a in anexos):
-                                anexos.append({
-                                    "nombre": nombre,
-                                    "url": url
-                                })
-                                print(f"✓ Anexo (regex): {nombre}")
+                                if es_valido and not any(a["nombre"] == nombre_archivo for a in anexos):
+                                    anexos.append({
+                                        "nombre": nombre_archivo,
+                                        "url": url
+                                    })
+                                    print(f"✓ Anexo agregado: {nombre_archivo}")
                 
             except Exception as e:
                 print(f"Error extrayendo anexos: {e}")

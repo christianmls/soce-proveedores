@@ -45,6 +45,16 @@ class ProcesosState(State):
     @rx.var
     def rucs_unicos(self) -> List[str]:
         return sorted(list(set(o.ruc_proveedor for o in self.ofertas_actuales)))
+    
+    @rx.var
+    def totales_por_ruc(self) -> Dict[str, float]:
+        """Calcula el total por cada RUC"""
+        totales = {}
+        for oferta in self.ofertas_actuales:
+            if oferta.ruc_proveedor not in totales:
+                totales[oferta.ruc_proveedor] = 0.0
+            totales[oferta.ruc_proveedor] += oferta.valor_total
+        return totales    
 
     def load_procesos(self):
         with rx.session() as session:
