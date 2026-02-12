@@ -5,16 +5,15 @@ from ..state import State
 import asyncio
 from datetime import datetime
 from sqlmodel import select, desc
-# IMPORTANTE: Ajusta esta línea según dónde guardaste scraper.py
-# Si está en la carpeta soce junto a soce.py:
-from ..utils.scraper import scrape_proceso 
-# Si está en una carpeta utils: from ..utils.scraper import scrape_proceso
+
+# Importación del scraper
+from ..utils.scraper import scrape_proceso
 
 class ProcesosState(State):
     # --- NAVEGACIÓN ---
     current_view: str = "procesos"
     
-    # --- VARIABLES ---
+    # --- VARIABLES DE DATOS ---
     proceso_id: int = 0
     proceso_url_id: str = "" 
     nuevo_codigo_proceso: str = ""
@@ -22,30 +21,36 @@ class ProcesosState(State):
     categoria_id: str = ""
     nombre_categoria_actual: str = ""
     
+    # --- CONTROL DE SCRAPING ---
     is_scraping: bool = False
     scraping_progress: str = ""
     
+    # --- LISTAS Y OBJETOS ---
     categorias: list[Categoria] = []
     procesos: list[Proceso] = []
     proceso_actual: Optional[Proceso] = None
     ofertas_actuales: list[Oferta] = []
     barrido_actual_id: Optional[int] = None
 
-    # --- COMPUTED VARS ---
+    # --- COMPUTED VARS (Vista) ---
+
     @rx.var
     def lista_procesos_formateada(self) -> List[Dict[str, Any]]:
+        """Prepara la lista de procesos con fechas seguras"""
         return [
             {
                 "id": str(p.id),
                 "codigo_corto": (p.codigo_proceso[:35] + "...") if len(p.codigo_proceso) > 35 else p.codigo_proceso,
                 "nombre": p.nombre if p.nombre else "-",
-                "fecha": p.fecha_creacion.strftime("%Y-%m-%d %H:%M") if p.fecha_creacion else "-"
+                # CORRECCIÓN DE ERROR DATE: Verificamos explícitamente que no sea None
+                "fecha": p.fecha_creacion.strftime("%Y-%m-%d %H:%M") if p.fecha_creacion is not None else "-"
             }
             for p in self.procesos
         ]
 
     @rx.var
     def ofertas_formateadas(self) -> List[Dict[str, Any]]:
+        """Prepara las ofertas para las tarjetas"""
         return [
             {
                 "ruc": o.ruc_proveedor,
@@ -69,7 +74,8 @@ class ProcesosState(State):
     def tiene_ofertas(self) -> bool:
         return len(self.ofertas_actuales) > 0
 
-    # --- ACCIONES ---
+    # --- ACCIONES DE NAVEGACIÓN ---
+
     def ir_a_detalle(self, p_id: str):
         self.proceso_id = int(p_id)
         self.scraping_progress = ""
@@ -82,11 +88,13 @@ class ProcesosState(State):
         self.ofertas_actuales = []
         self.categoria_id = ""
 
+    # --- SETTERS ---
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
     def set_categoria_id(self, val: str): self.categoria_id = val
 
-    # --- CARGA ---
+    # --- CARGA DE DATOS ---
+
     def load_procesos(self):
         with rx.session() as session:
             self.procesos = session.exec(select(Proceso).order_by(desc(Proceso.fecha_creacion))).all()
@@ -106,6 +114,7 @@ class ProcesosState(State):
             )
             session.add(proceso)
             session.commit()
+        
         self.nuevo_codigo_proceso = ""
         self.nuevo_nombre_proceso = ""
         self.categoria_id = ""
@@ -113,15 +122,19 @@ class ProcesosState(State):
 
     def load_proceso_detalle(self):
         if not self.proceso_id: return
+        
         with rx.session() as session:
             self.proceso_actual = session.get(Proceso, self.proceso_id)
             if self.proceso_actual:
                 self.proceso_url_id = self.proceso_actual.codigo_proceso
+                
+                # Cargar nombre de categoría
                 if self.proceso_actual.categoria_id:
                     self.categoria_id = str(self.proceso_actual.categoria_id)
                     cat = session.get(Categoria, self.proceso_actual.categoria_id)
                     self.nombre_categoria_actual = cat.nombre if cat else "Desconocida"
                 
+                # Buscar último barrido
                 ultimo_barrido = session.exec(
                     select(Barrido)
                     .where(Barrido.proceso_id == self.proceso_id)
@@ -133,21 +146,28 @@ class ProcesosState(State):
                     self.ofertas_actuales = session.exec(
                         select(Oferta).where(Oferta.barrido_id == ultimo_barrido.id)
                     ).all()
+                    
                     if not self.is_scraping:
-                        self.scraping_progress = f"📅 Datos del último barrido ({ultimo_barrido.fecha_fin.strftime('%d/%m %H:%M')})"
+                        # CORRECCIÓN DE ERROR DATE: Uso seguro de strftime
+                        fecha_txt = "Reciente"
+                        if ultimo_barrido.fecha_fin is not None:
+                            fecha_txt = ultimo_barrido.fecha_fin.strftime('%d/%m %H:%M')
+                        
+                        self.scraping_progress = f"📅 Datos del último barrido ({fecha_txt})"
                 else:
                     self.ofertas_actuales = []
                     self.scraping_progress = "No hay datos previos."
 
-    # --- LÓGICA DE SCRAPING REAL ---
+    # --- LÓGICA DE SCRAPING ---
+
     async def iniciar_scraping(self):
         pid = self.proceso_id
         if not pid or not self.categoria_id:
-            self.scraping_progress = "❌ Error: Datos faltantes"
+            self.scraping_progress = "❌ Error: Datos incompletos"
             return
         
         self.is_scraping = True
-        self.scraping_progress = "🔄 Preparando entorno..."
+        self.scraping_progress = "🔄 Iniciando..."
         self.ofertas_actuales = [] 
         yield
         
@@ -162,7 +182,8 @@ class ProcesosState(State):
             session.add(barrido)
             session.commit()
             session.refresh(barrido)
-            barrido_id = barrido.id
+            # Guardamos el ID en una variable local para usarla en el loop
+            barrido_id_local = barrido.id
 
         # 2. Obtener Proveedores
         with rx.session() as session:
@@ -176,24 +197,25 @@ class ProcesosState(State):
             yield
             return
         
-        # 3. EJECUCIÓN DEL SCRAPER
+        # 3. Loop de Scraping
         total = len(proveedores)
         exitosos = 0
         sin_datos = 0
+        errores = 0
         
         for i, proveedor in enumerate(proveedores, 1):
-            self.scraping_progress = f"🔍 Analizando {i}/{total}: {proveedor.ruc}..."
+            self.scraping_progress = f"🔍 ({i}/{total}) Consultando: {proveedor.ruc}..."
             yield
             
             try:
-                # LLAMADA REAL AL SCRAPER
+                # LLAMADA AL SCRAPER
                 datos = await scrape_proceso(self.proceso_url_id, proveedor.ruc)
                 
                 with rx.session() as session:
                     if datos:
                         exitosos += 1
                         oferta = Oferta(
-                            barrido_id=barrido_id,
+                            barrido_id=barrido_id_local, # Usamos el ID local
                             ruc_proveedor=proveedor.ruc,
                             razon_social=datos.get('razon_social', proveedor.nombre),
                             correo_electronico=datos.get('correo_electronico', ''),
@@ -214,35 +236,33 @@ class ProcesosState(State):
                     else:
                         sin_datos += 1
                         oferta = Oferta(
-                            barrido_id=barrido_id,
+                            barrido_id=barrido_id_local,
                             ruc_proveedor=proveedor.ruc,
                             razon_social=proveedor.nombre or "",
-                            estado="sin_datos",
+                            estado="sin_datos", # Esto aparecerá en la lista
                             fecha_scraping=datetime.now()
                         )
                     
                     session.add(oferta)
                     session.commit()
-                    
-                    # Actualizar la vista en tiempo real (opcional, consume recursos)
-                    # self.ofertas_actuales.append(oferta) 
             
             except Exception as e:
                 print(f"Error procesando {proveedor.ruc}: {e}")
-                # Registrar el error como oferta fallida si quieres constancia
+                errores += 1
         
         # 4. Finalizar
         with rx.session() as session:
-             b = session.get(Barrido, barrido_id)
+             b = session.get(Barrido, barrido_id_local)
              b.estado = "completado"
              b.fecha_fin = datetime.now()
              b.total_proveedores = total
              b.exitosos = exitosos
              b.sin_datos = sin_datos
+             b.errores = errores
              session.commit()
 
-        self.scraping_progress = f"✅ Completado: {exitosos} ofertas encontradas."
+        self.scraping_progress = f"✅ Finalizado. Exitosos: {exitosos} | Sin datos: {sin_datos}"
         self.is_scraping = False
         
-        # 5. Recargar todo para mostrar resultados finales
+        # 5. Recargar vista
         self.load_proceso_detalle()
