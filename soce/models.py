@@ -49,8 +49,9 @@ class Oferta(rx.Model, table=True):
     fecha_scraping: Optional[datetime] = None
 
 class Anexo(rx.Model, table=True):
-    """Tabla independiente para documentos adjuntos"""
+    """Tabla para documentos adjuntos con enlace de descarga"""
     barrido_id: int = Field(foreign_key="barrido.id")
     ruc_proveedor: str
     nombre_archivo: str
+    url_archivo: str # <--- NUEVO CAMPO PARA EL LINK
     fecha_registro: datetime = Field(default_factory=datetime.now)

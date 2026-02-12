@@ -13,7 +13,6 @@ class ProcesosState(State):
     nuevo_codigo_proceso: str = ""
     nuevo_nombre_proceso: str = ""
     categoria_id: str = ""
-    nombre_categoria_actual: str = ""
     is_scraping: bool = False
     scraping_progress: str = ""
     
@@ -22,6 +21,7 @@ class ProcesosState(State):
     ofertas_actuales: List[Oferta] = []
     anexos_actuales: List[Anexo] = []
 
+    # SETTERS EXPLÍCITOS PARA EVITAR ATTRIBUTERROR
     def set_current_view(self, view: str): self.current_view = view
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
@@ -35,6 +35,11 @@ class ProcesosState(State):
     def rucs_unicos(self) -> List[str]:
         return list(set(o.ruc_proveedor for o in self.ofertas_actuales))
 
+    def load_procesos(self):
+        with rx.session() as session:
+            self.procesos = session.exec(select(Proceso).order_by(desc(Proceso.id))).all()
+            self.categorias = session.exec(select(Categoria)).all()
+
     def load_proceso_detalle(self):
         with rx.session() as session:
             proc = session.get(Proceso, self.proceso_id)
@@ -46,9 +51,13 @@ class ProcesosState(State):
                     self.ofertas_actuales = session.exec(select(Oferta).where(Oferta.barrido_id == ultimo_b.id)).all()
                     self.anexos_actuales = session.exec(select(Anexo).where(Anexo.barrido_id == ultimo_b.id)).all()
 
+    def ir_a_detalle(self, p_id: str):
+        self.proceso_id = int(p_id)
+        self.load_proceso_detalle()
+        self.set_current_view("detalle_proceso")
+
     async def iniciar_scraping(self):
         self.is_scraping = True
-        self.scraping_progress = "Iniciando..."
         yield
         try:
             with rx.session() as session:
@@ -61,10 +70,8 @@ class ProcesosState(State):
                 total = len(provs)
 
                 for i, p in enumerate(provs, 1):
-                    # ESTO MUESTRA EL AVANCE (1/3)
                     self.scraping_progress = f"({i}/{total}) Consultando RUC: {p.ruc}"
                     yield
-                    
                     res = await scrape_proceso(self.proceso_url_id, p.ruc)
                     if res:
                         for it in res["items"]:
@@ -74,13 +81,11 @@ class ProcesosState(State):
                                 unidad=it["unidad"], cantidad=it["cantidad"], valor_unitario=it["v_unit"], valor_total=it["v_total"]
                             ))
                         for an in res["anexos"]:
-                            session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an))
+                            session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
                     session.commit()
-
-                barrido.estado = "completado"
                 barrido.fecha_fin = datetime.now()
                 session.commit()
             self.load_proceso_detalle()
         finally:
-            self.is_scraping = False # LIBERA EL BOTÓN PARA QUE NO SE QUEDE COLGADO
+            self.is_scraping = False
             self.scraping_progress = "Finalizado"
