@@ -10,24 +10,38 @@ class ProcesosState(State):
     proceso_url_id: str = ""
     categoria_id: str = ""
     
+    # Nuevo proceso
+    nuevo_codigo_proceso: str = ""
+    nuevo_nombre_proceso: str = ""
+    
     # Control del scraping
     is_scraping: bool = False
-    scraping_progress: str = "Esperando configuración..."
+    scraping_progress: str = "Listo para iniciar"
     
     # Datos
     categorias: list[Categoria] = []
     procesos: list[Proceso] = []
+    proceso_actual: Optional[Proceso] = None
     barridos: list[Barrido] = []
-    ofertas_actuales: list[Oferta] = []  # Ofertas del último barrido
+    ofertas_actuales: list[Oferta] = []
     
     # Barrido seleccionado
     barrido_seleccionado_id: Optional[int] = None
+    
+    # ID del proceso actual (para routing)
+    proceso_id: Optional[int] = None
     
     def set_proceso_url_id(self, val: str):
         self.proceso_url_id = val
     
     def set_categoria_id(self, val: str):
         self.categoria_id = val
+    
+    def set_nuevo_codigo_proceso(self, val: str):
+        self.nuevo_codigo_proceso = val
+    
+    def set_nuevo_nombre_proceso(self, val: str):
+        self.nuevo_nombre_proceso = val
     
     def set_barrido_seleccionado(self, val: str):
         self.barrido_seleccionado_id = int(val) if val else None
@@ -37,17 +51,62 @@ class ProcesosState(State):
         """Carga todas las categorías disponibles"""
         with rx.session() as session:
             self.categorias = session.exec(Categoria.select()).all()
-        self.scraping_progress = "Listo para iniciar"
 
     def load_procesos(self):
         """Carga todos los procesos"""
         with rx.session() as session:
             self.procesos = session.exec(Proceso.select()).all()
     
-    def load_barridos(self):
-        """Carga todos los barridos"""
+    def crear_proceso(self):
+        """Crea un nuevo proceso"""
+        if not self.nuevo_codigo_proceso:
+            return
+        
         with rx.session() as session:
-            self.barridos = session.exec(Barrido.select()).all()
+            proceso = Proceso(
+                codigo_proceso=self.nuevo_codigo_proceso,
+                nombre=self.nuevo_nombre_proceso,
+                fecha_creacion=datetime.now()
+            )
+            session.add(proceso)
+            session.commit()
+        
+        # Limpiar campos
+        self.nuevo_codigo_proceso = ""
+        self.nuevo_nombre_proceso = ""
+        
+        # Recargar lista
+        self.load_procesos()
+    
+    def load_proceso_detalle(self):
+        """Carga el detalle de un proceso específico"""
+        # El proceso_id viene de la URL mediante el router
+        if not self.proceso_id:
+            return
+        
+        with rx.session() as session:
+            self.proceso_actual = session.get(Proceso, self.proceso_id)
+            
+            if self.proceso_actual:
+                self.proceso_url_id = self.proceso_actual.codigo_proceso
+                
+                # Cargar barridos de este proceso
+                self.barridos = session.exec(
+                    Barrido.select().where(Barrido.proceso_id == self.proceso_id)
+                ).all()
+        
+        # Cargar categorías
+        self.load_categorias()
+    
+    def load_barridos(self):
+        """Carga todos los barridos del proceso actual"""
+        if not self.proceso_id:
+            return
+        
+        with rx.session() as session:
+            self.barridos = session.exec(
+                Barrido.select().where(Barrido.proceso_id == self.proceso_id)
+            ).all()
     
     def cargar_ofertas_barrido(self):
         """Carga las ofertas del barrido seleccionado"""
@@ -62,8 +121,8 @@ class ProcesosState(State):
 
     async def iniciar_scraping(self):
         """Inicia el proceso de scraping"""
-        if not self.proceso_url_id:
-            self.scraping_progress = "❌ Error: Debes ingresar el ID del proceso"
+        if not self.proceso_id:
+            self.scraping_progress = "❌ Error: No hay proceso seleccionado"
             return
             
         if not self.categoria_id:
@@ -74,27 +133,10 @@ class ProcesosState(State):
         self.scraping_progress = "🔄 Iniciando scraping..."
         yield
         
-        # 1. Crear o buscar el Proceso
-        with rx.session() as session:
-            proceso = session.exec(
-                Proceso.select().where(Proceso.codigo_proceso == self.proceso_url_id)
-            ).first()
-            
-            if not proceso:
-                proceso = Proceso(
-                    codigo_proceso=self.proceso_url_id,
-                    fecha_creacion=datetime.now()
-                )
-                session.add(proceso)
-                session.commit()
-                session.refresh(proceso)
-            
-            proceso_id = proceso.id
-        
-        # 2. Crear un nuevo Barrido
+        # 1. Crear un nuevo Barrido
         with rx.session() as session:
             barrido = Barrido(
-                proceso_id=proceso_id,
+                proceso_id=self.proceso_id,
                 categoria_id=int(self.categoria_id),
                 fecha_inicio=datetime.now(),
                 estado="en_proceso"
@@ -104,7 +146,7 @@ class ProcesosState(State):
             session.refresh(barrido)
             barrido_id = barrido.id
         
-        # 3. Obtener proveedores de la categoría
+        # 2. Obtener proveedores de la categoría
         with rx.session() as session:
             proveedores = session.exec(
                 Proveedor.select().where(
@@ -126,16 +168,16 @@ class ProcesosState(State):
         self.scraping_progress = f"📋 Encontrados {len(proveedores)} proveedores. Iniciando barrido..."
         yield
         
-        # 4. Actualizar total de proveedores en el barrido
+        # 3. Actualizar total de proveedores en el barrido
         with rx.session() as session:
             barrido = session.get(Barrido, barrido_id)
             barrido.total_proveedores = len(proveedores)
             session.commit()
         
-        # 5. Importar función de scraping
+        # 4. Importar función de scraping
         from ..utils.scraper import scrape_proceso
         
-        # 6. Procesar cada proveedor
+        # 5. Procesar cada proveedor
         total = len(proveedores)
         exitosos = 0
         sin_datos = 0
@@ -222,7 +264,7 @@ class ProcesosState(State):
             # Pausa entre requests
             await asyncio.sleep(2)
         
-        # 7. Finalizar barrido
+        # 6. Finalizar barrido
         with rx.session() as session:
             barrido = session.get(Barrido, barrido_id)
             barrido.estado = "completado"
@@ -232,7 +274,7 @@ class ProcesosState(State):
             barrido.errores = errores
             session.commit()
         
-        # 8. Resumen final
+        # 7. Resumen final
         self.scraping_progress = f"✅ Completado! Exitosos: {exitosos} | Sin datos: {sin_datos} | Errores: {errores}"
         self.is_scraping = False
         self.load_barridos()
