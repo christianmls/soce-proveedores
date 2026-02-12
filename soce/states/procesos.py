@@ -5,22 +5,16 @@ from ..state import State
 import asyncio
 from datetime import datetime
 from sqlmodel import select, desc
-
-# Importación del scraper
 from ..utils.scraper import scrape_proceso
 
 class ProcesosState(State):
-    # --- NAVEGACIÓN ---
     current_view: str = "procesos"
-    
-    # --- VARIABLES ---
     proceso_id: int = 0
     proceso_url_id: str = "" 
     nuevo_codigo_proceso: str = ""
     nuevo_nombre_proceso: str = ""
     categoria_id: str = ""
     nombre_categoria_actual: str = ""
-    
     is_scraping: bool = False
     scraping_progress: str = ""
     
@@ -30,7 +24,6 @@ class ProcesosState(State):
     ofertas_actuales: list[Oferta] = []
     barrido_actual_id: Optional[int] = None
 
-    # --- COMPUTED VARS ---
     @rx.var
     def lista_procesos_formateada(self) -> List[Dict[str, Any]]:
         return [
@@ -68,7 +61,6 @@ class ProcesosState(State):
     def tiene_ofertas(self) -> bool:
         return len(self.ofertas_actuales) > 0
 
-    # --- ACCIONES ---
     def ir_a_detalle(self, p_id: str):
         self.proceso_id = int(p_id)
         self.scraping_progress = ""
@@ -87,7 +79,6 @@ class ProcesosState(State):
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
     def set_categoria_id(self, val: str): self.categoria_id = val
 
-    # --- CARGA ---
     def load_procesos(self):
         with rx.session() as session:
             self.procesos = session.exec(select(Proceso).order_by(desc(Proceso.fecha_creacion))).all()
@@ -144,7 +135,6 @@ class ProcesosState(State):
                     self.ofertas_actuales = []
                     self.scraping_progress = "No hay datos previos."
 
-    # --- SCRAPING MULTI-ÍTEM ---
     async def iniciar_scraping(self):
         pid = self.proceso_id
         if not pid or not self.categoria_id:
@@ -182,8 +172,6 @@ class ProcesosState(State):
             
             total = len(proveedores)
             exitosos = 0
-            sin_datos = 0
-            errores = 0
             
             for i, proveedor in enumerate(proveedores, 1):
                 if not self.is_scraping: break
@@ -192,13 +180,12 @@ class ProcesosState(State):
                 yield
                 
                 try:
-                    # AHORA RECIBIMOS UNA LISTA DE ÍTEMS, NO UN SOLO DICCIONARIO
+                    # RECIBIMOS LISTA DE ITEMS
                     lista_items = await scrape_proceso(self.proceso_url_id, proveedor.ruc)
                     
                     with rx.session() as session:
                         if lista_items:
                             exitosos += 1
-                            # Iteramos sobre cada producto encontrado en la tabla
                             for item in lista_items:
                                 oferta = Oferta(
                                     barrido_id=barrido_id_local,
@@ -221,7 +208,6 @@ class ProcesosState(State):
                                 )
                                 session.add(oferta)
                         else:
-                            sin_datos += 1
                             oferta = Oferta(
                                 barrido_id=barrido_id_local,
                                 ruc_proveedor=proveedor.ruc,
@@ -235,7 +221,6 @@ class ProcesosState(State):
                 
                 except Exception as e:
                     print(f"Error procesando {proveedor.ruc}: {e}")
-                    errores += 1
             
             with rx.session() as session:
                 b = session.get(Barrido, barrido_id_local)
@@ -243,16 +228,13 @@ class ProcesosState(State):
                 b.fecha_fin = datetime.now()
                 b.total_proveedores = total
                 b.exitosos = exitosos
-                b.sin_datos = sin_datos
-                b.errores = errores
                 session.commit()
 
-            self.scraping_progress = f"✅ Finalizado. Exitosos: {exitosos} | Sin datos: {sin_datos}"
+            self.scraping_progress = f"✅ Finalizado. Exitosos: {exitosos}"
             self.load_proceso_detalle()
             
         except Exception as e:
-            self.scraping_progress = f"❌ Error crítico: {str(e)}"
-            print(f"Error en scraping: {e}")
+            self.scraping_progress = f"❌ Error: {str(e)}"
             
         finally:
             self.is_scraping = False
