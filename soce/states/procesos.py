@@ -32,17 +32,15 @@ class ProcesosState(State):
     ofertas_actuales: list[Oferta] = []
     barrido_actual_id: Optional[int] = None
 
-    # --- COMPUTED VARS (Vista) ---
+    # --- COMPUTED VARS ---
 
     @rx.var
     def lista_procesos_formateada(self) -> List[Dict[str, Any]]:
-        """Prepara la lista de procesos con fechas seguras"""
         return [
             {
                 "id": str(p.id),
                 "codigo_corto": (p.codigo_proceso[:35] + "...") if len(p.codigo_proceso) > 35 else p.codigo_proceso,
                 "nombre": p.nombre if p.nombre else "-",
-                # CORRECCIÓN DE ERROR DATE: Verificamos explícitamente que no sea None
                 "fecha": p.fecha_creacion.strftime("%Y-%m-%d %H:%M") if p.fecha_creacion is not None else "-"
             }
             for p in self.procesos
@@ -50,7 +48,6 @@ class ProcesosState(State):
 
     @rx.var
     def ofertas_formateadas(self) -> List[Dict[str, Any]]:
-        """Prepara las ofertas para las tarjetas"""
         return [
             {
                 "ruc": o.ruc_proveedor,
@@ -78,7 +75,9 @@ class ProcesosState(State):
 
     def ir_a_detalle(self, p_id: str):
         self.proceso_id = int(p_id)
+        # Limpiamos estados viejos al entrar
         self.scraping_progress = ""
+        self.is_scraping = False 
         self.load_proceso_detalle()
         self.current_view = "detalle_proceso"
 
@@ -87,6 +86,7 @@ class ProcesosState(State):
         self.proceso_id = 0
         self.ofertas_actuales = []
         self.categoria_id = ""
+        self.is_scraping = False # Aseguramos reset al salir
 
     # --- SETTERS ---
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
@@ -121,6 +121,10 @@ class ProcesosState(State):
         self.load_procesos()
 
     def load_proceso_detalle(self):
+        """Carga el proceso y resetea cualquier estado trabado"""
+        # SOLUCIÓN F5: Siempre forzamos a False al cargar la vista
+        self.is_scraping = False
+        
         if not self.proceso_id: return
         
         with rx.session() as session:
@@ -128,13 +132,11 @@ class ProcesosState(State):
             if self.proceso_actual:
                 self.proceso_url_id = self.proceso_actual.codigo_proceso
                 
-                # Cargar nombre de categoría
                 if self.proceso_actual.categoria_id:
                     self.categoria_id = str(self.proceso_actual.categoria_id)
                     cat = session.get(Categoria, self.proceso_actual.categoria_id)
                     self.nombre_categoria_actual = cat.nombre if cat else "Desconocida"
                 
-                # Buscar último barrido
                 ultimo_barrido = session.exec(
                     select(Barrido)
                     .where(Barrido.proceso_id == self.proceso_id)
@@ -147,13 +149,11 @@ class ProcesosState(State):
                         select(Oferta).where(Oferta.barrido_id == ultimo_barrido.id)
                     ).all()
                     
-                    if not self.is_scraping:
-                        # CORRECCIÓN DE ERROR DATE: Uso seguro de strftime
-                        fecha_txt = "Reciente"
-                        if ultimo_barrido.fecha_fin is not None:
-                            fecha_txt = ultimo_barrido.fecha_fin.strftime('%d/%m %H:%M')
-                        
-                        self.scraping_progress = f"📅 Datos del último barrido ({fecha_txt})"
+                    # Solo actualizamos el mensaje si no estamos intentando scrapear (estado limpio)
+                    fecha_txt = "Reciente"
+                    if ultimo_barrido.fecha_fin is not None:
+                        fecha_txt = ultimo_barrido.fecha_fin.strftime('%d/%m %H:%M')
+                    self.scraping_progress = f"📅 Datos del último barrido ({fecha_txt})"
                 else:
                     self.ofertas_actuales = []
                     self.scraping_progress = "No hay datos previos."
@@ -166,103 +166,117 @@ class ProcesosState(State):
             self.scraping_progress = "❌ Error: Datos incompletos"
             return
         
+        # Evitar doble clic si ya está corriendo
+        if self.is_scraping:
+            return
+
         self.is_scraping = True
         self.scraping_progress = "🔄 Iniciando..."
         self.ofertas_actuales = [] 
         yield
         
-        # 1. Crear Barrido
-        with rx.session() as session:
-            barrido = Barrido(
-                proceso_id=pid,
-                categoria_id=int(self.categoria_id),
-                fecha_inicio=datetime.now(),
-                estado="en_proceso"
-            )
-            session.add(barrido)
-            session.commit()
-            session.refresh(barrido)
-            # Guardamos el ID en una variable local para usarla en el loop
-            barrido_id_local = barrido.id
+        try:
+            # 1. Crear Barrido
+            with rx.session() as session:
+                barrido = Barrido(
+                    proceso_id=pid,
+                    categoria_id=int(self.categoria_id),
+                    fecha_inicio=datetime.now(),
+                    estado="en_proceso"
+                )
+                session.add(barrido)
+                session.commit()
+                session.refresh(barrido)
+                barrido_id_local = barrido.id
 
-        # 2. Obtener Proveedores
-        with rx.session() as session:
-            proveedores = session.exec(
-                select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))
-            ).all()
+            # 2. Obtener Proveedores
+            with rx.session() as session:
+                proveedores = session.exec(
+                    select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))
+                ).all()
 
-        if not proveedores:
-            self.scraping_progress = "⚠️ No hay proveedores en esta categoría"
-            self.is_scraping = False
-            yield
-            return
-        
-        # 3. Loop de Scraping
-        total = len(proveedores)
-        exitosos = 0
-        sin_datos = 0
-        errores = 0
-        
-        for i, proveedor in enumerate(proveedores, 1):
-            self.scraping_progress = f"🔍 ({i}/{total}) Consultando: {proveedor.ruc}..."
-            yield
+            if not proveedores:
+                self.scraping_progress = "⚠️ No hay proveedores en esta categoría"
+                # Finalizamos aquí, el finally se encargará del is_scraping = False
+                return
             
-            try:
-                # LLAMADA AL SCRAPER
-                datos = await scrape_proceso(self.proceso_url_id, proveedor.ruc)
+            # 3. Loop de Scraping
+            total = len(proveedores)
+            exitosos = 0
+            sin_datos = 0
+            errores = 0
+            
+            for i, proveedor in enumerate(proveedores, 1):
+                # Verificar si el usuario canceló o se desconectó (opcional, pero buena práctica)
+                if not self.is_scraping: 
+                    break
+
+                self.scraping_progress = f"🔍 ({i}/{total}) Consultando: {proveedor.ruc}..."
+                yield
                 
-                with rx.session() as session:
-                    if datos:
-                        exitosos += 1
-                        oferta = Oferta(
-                            barrido_id=barrido_id_local, # Usamos el ID local
-                            ruc_proveedor=proveedor.ruc,
-                            razon_social=datos.get('razon_social', proveedor.nombre),
-                            correo_electronico=datos.get('correo_electronico', ''),
-                            telefono=datos.get('telefono', ''),
-                            pais=datos.get('pais', ''),
-                            provincia=datos.get('provincia', ''),
-                            canton=datos.get('canton', ''),
-                            direccion=datos.get('direccion', ''),
-                            descripcion_producto=datos.get('descripcion_producto', ''),
-                            unidad=datos.get('unidad', ''),
-                            cantidad=datos.get('cantidad', 0.0),
-                            valor_unitario=datos.get('valor_unitario', 0.0),
-                            valor_total=datos.get('valor_total', 0.0),
-                            tiene_archivos=datos.get('tiene_archivos', False),
-                            estado="procesado",
-                            fecha_scraping=datetime.now()
-                        )
-                    else:
-                        sin_datos += 1
-                        oferta = Oferta(
-                            barrido_id=barrido_id_local,
-                            ruc_proveedor=proveedor.ruc,
-                            razon_social=proveedor.nombre or "",
-                            estado="sin_datos", # Esto aparecerá en la lista
-                            fecha_scraping=datetime.now()
-                        )
+                try:
+                    datos = await scrape_proceso(self.proceso_url_id, proveedor.ruc)
                     
-                    session.add(oferta)
-                    session.commit()
+                    with rx.session() as session:
+                        if datos:
+                            exitosos += 1
+                            oferta = Oferta(
+                                barrido_id=barrido_id_local,
+                                ruc_proveedor=proveedor.ruc,
+                                razon_social=datos.get('razon_social', proveedor.nombre),
+                                correo_electronico=datos.get('correo_electronico', ''),
+                                telefono=datos.get('telefono', ''),
+                                pais=datos.get('pais', ''),
+                                provincia=datos.get('provincia', ''),
+                                canton=datos.get('canton', ''),
+                                direccion=datos.get('direccion', ''),
+                                descripcion_producto=datos.get('descripcion_producto', ''),
+                                unidad=datos.get('unidad', ''),
+                                cantidad=datos.get('cantidad', 0.0),
+                                valor_unitario=datos.get('valor_unitario', 0.0),
+                                valor_total=datos.get('valor_total', 0.0),
+                                tiene_archivos=datos.get('tiene_archivos', False),
+                                estado="procesado",
+                                fecha_scraping=datetime.now()
+                            )
+                        else:
+                            sin_datos += 1
+                            oferta = Oferta(
+                                barrido_id=barrido_id_local,
+                                ruc_proveedor=proveedor.ruc,
+                                razon_social=proveedor.nombre or "",
+                                estado="sin_datos",
+                                fecha_scraping=datetime.now()
+                            )
+                        
+                        session.add(oferta)
+                        session.commit()
+                
+                except Exception as e:
+                    print(f"Error procesando {proveedor.ruc}: {e}")
+                    errores += 1
             
-            except Exception as e:
-                print(f"Error procesando {proveedor.ruc}: {e}")
-                errores += 1
-        
-        # 4. Finalizar
-        with rx.session() as session:
-             b = session.get(Barrido, barrido_id_local)
-             b.estado = "completado"
-             b.fecha_fin = datetime.now()
-             b.total_proveedores = total
-             b.exitosos = exitosos
-             b.sin_datos = sin_datos
-             b.errores = errores
-             session.commit()
+            # 4. Finalizar
+            with rx.session() as session:
+                b = session.get(Barrido, barrido_id_local)
+                b.estado = "completado"
+                b.fecha_fin = datetime.now()
+                b.total_proveedores = total
+                b.exitosos = exitosos
+                b.sin_datos = sin_datos
+                b.errores = errores
+                session.commit()
 
-        self.scraping_progress = f"✅ Finalizado. Exitosos: {exitosos} | Sin datos: {sin_datos}"
-        self.is_scraping = False
-        
-        # 5. Recargar vista
-        self.load_proceso_detalle()
+            self.scraping_progress = f"✅ Finalizado. Exitosos: {exitosos} | Sin datos: {sin_datos}"
+            
+            # 5. Recargar vista
+            self.load_proceso_detalle()
+            
+        except Exception as e:
+            self.scraping_progress = f"❌ Error crítico: {str(e)}"
+            print(f"Error en scraping: {e}")
+            
+        finally:
+            # ESTA ES LA CLAVE: 
+            # Pase lo que pase (éxito, error, F5, desconexión), liberamos el estado.
+            self.is_scraping = False
