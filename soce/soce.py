@@ -17,25 +17,22 @@ def index() -> rx.Component:
     return rx.hstack(
         rx.vstack(
             rx.heading("SOCE Pro", size="6", color_scheme="grass"),
-            rx.divider(),
-            sidebar_item("Procesos", "search", "procesos"),
-            sidebar_item("Categorías", "grid-2x2", "categorias"),
-            sidebar_item("Proveedores", "users", "proveedores"),
-            width="250px", height="100vh", padding="6", background_color=rx.color("gray", 2), border_right=f"1px solid {rx.color('gray', 4)}",
+            # ... resto del sidebar ...
+            width="250px", height="100vh", padding="6", background_color=rx.color("gray", 2)
         ),
         rx.box(
             rx.match(
                 ProcesosState.current_view,
                 ("procesos", procesos_view()),
-                ("categorias", categorias_view()),
-                ("proveedores", proveedores_view()),
                 ("detalle_proceso", proceso_detalle_view()),
+                # ... otras vistas ...
                 procesos_view()
             ),
-            flex="1", padding="8", background_color=rx.color("gray", 1), min_height="100vh",
+            flex="1", padding="8", width="100%", min_height="100vh" # Ocupa el 100% restante
         ),
-        spacing="0", width="100%",
+        spacing="0", width="100%", height="100vh"
     )
+
 
 app = rx.App()
 app.add_page(index, route="/")

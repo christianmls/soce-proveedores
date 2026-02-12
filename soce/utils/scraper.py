@@ -23,16 +23,18 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             await page.goto(url, wait_until='domcontentloaded', timeout=45000)
             await page.wait_for_timeout(4000)
             
-            # 1. TOTAL GENERAL (Ubicado en el 2do tbody)
-            total_general = 0.0
+            # 1. CAPTURA DEL TOTAL (Independiente del tbody)
+            total_proforma = 0.0
             try:
-                # Localizamos la fila que contiene "TOTAL:" sin importar el tbody
-                total_row = page.locator("tr:has-text('TOTAL:')")
-                total_text = await total_row.locator("td").last.inner_text()
-                total_general = clean_val(total_text)
-            except: pass
+                # Buscamos la fila que tiene el texto "TOTAL:"
+                fila_total = page.locator("tr:has-text('TOTAL:')")
+                # El valor está en la última celda td de esa fila
+                texto_total = await fila_total.locator("td").last.inner_text()
+                total_proforma = clean_val(texto_total)
+            except Exception as e:
+                print(f"Error capturando total: {e}")
 
-            # 2. ÍTEMS (Estructura de 9 columnas)
+            # 2. PRODUCTOS (Mapeo de 9 columnas)
             items = []
             rows = await page.query_selector_all("table tr")
             for row in rows:
@@ -52,7 +54,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         })
                     except: continue
 
-            # 3. ANEXOS (Botones de tipo imagen)
+            # 3. ANEXOS (Selectores de imagen)
             anexos = []
             anexo_btns = await page.query_selector_all("input[type='image']")
             for btn in anexo_btns:
@@ -61,13 +63,12 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                     celdas = await fila.query_selector_all("td")
                     if celdas:
                         nombre = (await celdas[0].inner_text()).strip()
-                        if nombre and "Archivo" not in nombre and "Descripción" not in nombre:
+                        if nombre and "Descripción" not in nombre and "Archivo" not in nombre:
                             anexos.append({"nombre": nombre, "url": url})
                 except: continue
 
             await browser.close()
-            if not items and total_general <= 0: return None
-            return {"total": total_general, "items": items, "anexos": anexos}
+            return {"total": total_proforma, "items": items, "anexos": anexos}
     except:
         if browser: await browser.close()
         return None
