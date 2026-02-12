@@ -21,48 +21,40 @@ class Proveedor(rx.Model, table=True):
     )
 
 class Proceso(rx.Model, table=True):
-    """Proceso de contratación pública"""
-    codigo_proceso: str  # ID del proceso (ej: xrMof7bBhVx...)
+    codigo_proceso: str
     nombre: Optional[str] = ""
-    objeto: Optional[str] = ""
-    entidad: Optional[str] = ""
     fecha_creacion: Optional[datetime] = None
     categoria_id: int = Field(foreign_key="categoria.id")
 
 class Barrido(rx.Model, table=True):
-    """Cada ejecución de scraping sobre un proceso"""
     proceso_id: int = Field(foreign_key="proceso.id")    
     fecha_inicio: Optional[datetime] = None
     fecha_fin: Optional[datetime] = None
-    estado: str = "en_proceso"  # en_proceso, completado, error
+    estado: str = "en_proceso"
     total_proveedores: int = 0
     exitosos: int = 0
-    sin_datos: int = 0
-    errores: int = 0
 
 class Oferta(rx.Model, table=True):
-    """Oferta de un proveedor en un barrido específico"""
+    """Guarda cada fila de la tabla de la web"""
     barrido_id: int = Field(foreign_key="barrido.id")
     ruc_proveedor: str
-    
-    # Datos del proveedor
     razon_social: Optional[str] = ""
-    correo_electronico: Optional[str] = ""
-    telefono: Optional[str] = ""
-    pais: Optional[str] = ""
-    provincia: Optional[str] = ""
-    canton: Optional[str] = ""
-    direccion: Optional[str] = ""
     
-    # Datos del producto/servicio
-    descripcion_producto: Optional[str] = ""
-    unidad: Optional[str] = ""
-    cantidad: Optional[float] = 0.0
-    valor_unitario: Optional[float] = 0.0
-    valor_total: Optional[float] = 0.0
+    # Columnas exactas de la web
+    numero_item: str
+    cpc: str
+    descripcion_producto: str
+    unidad: str
+    cantidad: float
+    valor_unitario: float
+    valor_total: float
     
-    # Metadatos
     fecha_scraping: Optional[datetime] = None
-    estado: str = "pendiente"  # procesado, sin_datos, error
-    tiene_archivos: bool = False
-    datos_completos_json: Optional[str] = ""
+
+class Anexo(rx.Model, table=True):
+    """Nueva tabla para documentos adjuntos"""
+    barrido_id: int = Field(foreign_key="barrido.id")
+    ruc_proveedor: str
+    nombre_archivo: str
+    # En estos sitios la URL suele ser dinámica, guardamos el nombre como referencia
+    fecha_registro: datetime = Field(default_factory=datetime.now)

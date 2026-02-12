@@ -1,66 +1,57 @@
 import reflex as rx
 from ..states.procesos import ProcesosState
 
-def oferta_detalle_card(o: dict) -> rx.Component:
+def render_anexos(ruc: str):
+    # Filtramos anexos por proveedor
+    return rx.vstack(
+        rx.text("Documentos Anexos:", font_weight="bold", size="2"),
+        rx.foreach(
+            ProcesosState.anexos_actuales,
+            lambda a: rx.cond(a.ruc_proveedor == ruc, rx.badge(rx.icon("file-text", size=16), a.nombre_archivo, color_scheme="blue"))
+        ),
+        spacing="1"
+    )
+
+def oferta_card(ruc: str):
     return rx.card(
         rx.vstack(
-            rx.hstack(
-                rx.heading(f"Proveedor: {o['razon_social']}", size="4"),
-                rx.spacer(),
-                rx.badge(o["estado"], color_scheme=rx.cond(o["estado"]=="procesado", "green", "gray")),
-                width="100%"
-            ),
-            rx.grid(
-                rx.vstack(rx.text(f"RUC: {o['ruc']}", size="2"), rx.text(f"Correo: {o['correo']}", size="2")),
-                rx.vstack(rx.text(f"Ubicación: {o['ubicacion']}", size="2"), rx.text(f"Dirección: {o['direccion']}", size="2")),
-                columns="2", width="100%"
-            ),
+            rx.heading(f"Proveedor: {ruc}", size="4"),
             rx.table.root(
                 rx.table.header(
                     rx.table.row(
-                        rx.table.column_header_cell("Producto"),
-                        rx.table.column_header_cell("Und."),
-                        rx.table.column_header_cell("Cant."),
-                        rx.table.column_header_cell("V. Unit"),
-                        rx.table.column_header_cell("Total"),
-                        rx.table.column_header_cell("Anexo"),
+                        rx.table.column_header_cell("No."), rx.table.column_header_cell("CPC"),
+                        rx.table.column_header_cell("Descripción"), rx.table.column_header_cell("Cant."),
+                        rx.table.column_header_cell("V. Unit"), rx.table.column_header_cell("Total")
                     )
                 ),
                 rx.table.body(
-                    rx.table.row(
-                        rx.table.cell(o["producto"]),
-                        rx.table.cell(o["unidad"]),
-                        rx.table.cell(o["cantidad"]),
-                        rx.table.cell(o["v_unitario"]),
-                        rx.table.cell(o["v_total"], weight="bold"),
-                        rx.table.cell(rx.cond(o["tiene_archivos"], rx.icon("file-check", color="blue"), "No")),
+                    rx.foreach(
+                        ProcesosState.ofertas_actuales,
+                        lambda o: rx.cond(
+                            o.ruc_proveedor == ruc,
+                            rx.table.row(
+                                rx.table.cell(o.numero_item), rx.table.cell(o.cpc),
+                                rx.table.cell(o.descripcion_producto), rx.table.cell(o.cantidad),
+                                rx.table.cell(o.valor_unitario), rx.table.cell(o.valor_total)
+                            )
+                        )
                     )
-                ),
-                variant="surface", width="100%"
+                )
             ),
-            spacing="3", width="100%"
+            render_anexos(ruc),
+            width="100%", spacing="3"
         ),
-        margin_bottom="4", width="100%"
+        margin_bottom="4"
     )
 
-def proceso_detalle_view() -> rx.Component:
+def proceso_detalle_view():
+    # Obtenemos RUCs únicos del barrido para no repetir tarjetas
+    rucs_unicos = rx.var("Array.from(new Set(procesos_state.ofertas_actuales.map(o => o.ruc_proveedor)))")
+    
     return rx.vstack(
-        rx.button(rx.icon("arrow-left"), "Volver a Procesos", variant="ghost", on_click=ProcesosState.volver_a_lista),
-        rx.card(
-            rx.vstack(
-                rx.heading("Detalle del Proceso", size="6"),
-                rx.text(f"Código: {ProcesosState.proceso_url_id}", font_family="monospace"),
-                rx.badge(f"Categoría: {ProcesosState.nombre_categoria_actual}", variant="outline"),
-            ), width="100%"
-        ),
-        rx.card(
-            rx.hstack(
-                rx.button(rx.cond(ProcesosState.is_scraping, "Procesando...", "▶️ Iniciar Barrido"), 
-                          on_click=ProcesosState.iniciar_scraping, disabled=ProcesosState.is_scraping, color_scheme="grass"),
-                rx.text(ProcesosState.scraping_progress),
-                align_items="center", spacing="4"
-            ), width="100%"
-        ),
-        rx.vstack(rx.foreach(ProcesosState.ofertas_formateadas, oferta_detalle_card), width="100%"),
-        padding="4", width="100%", spacing="5"
+        rx.button("Volver", on_click=ProcesosState.set_current_view("procesos")),
+        rx.heading(f"Código: {ProcesosState.proceso_url_id}"),
+        rx.button("Iniciar Barrido", on_click=ProcesosState.iniciar_scraping, loading=ProcesosState.is_scraping),
+        rx.foreach(rucs_unicos, oferta_card),
+        width="100%", padding="4"
     )
