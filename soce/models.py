@@ -21,15 +21,29 @@ class Proveedor(rx.Model, table=True):
     )
 
 class Proceso(rx.Model, table=True):
-    proceso_id: str  # El ID del proceso de compras públicas
+    proceso_id: str
     ruc_proveedor: str
-    nombre_proveedor: Optional[str] = ""
-    objeto_proceso: Optional[str] = ""
-    valor_adjudicado: Optional[float] = 0.0
-    # Cambia esta línea para usar server_default en lugar de default_factory
-    fecha_barrido: datetime = Field(
-        default=None,
-        sa_column=Column(DateTime, server_default=func.now(), nullable=False)
-    )
-    estado: str = "pendiente"  # pendiente, procesado, error
-    datos_json: Optional[str] = ""  # Para guardar datos adicionales
+    
+    # Datos del proveedor
+    razon_social: Optional[str] = ""
+    correo_electronico: Optional[str] = ""
+    telefono: Optional[str] = ""
+    pais: Optional[str] = ""
+    provincia: Optional[str] = ""
+    canton: Optional[str] = ""
+    direccion: Optional[str] = ""
+    
+    # Datos del producto/servicio
+    descripcion_producto: Optional[str] = ""
+    unidad: Optional[str] = ""
+    cantidad: Optional[float] = 0.0
+    valor_unitario: Optional[float] = 0.0
+    valor_total: Optional[float] = 0.0
+    
+    # Metadatos
+    fecha_barrido: Optional[datetime] = None
+    estado: str = "pendiente"
+    tiene_archivos: bool = False
+    
+    # JSON con todos los datos
+    datos_completos_json: Optional[str] = ""
