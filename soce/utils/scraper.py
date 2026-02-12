@@ -1,6 +1,6 @@
 from playwright.async_api import async_playwright
 import re
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import asyncio
 
 async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
@@ -45,16 +45,13 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                 cells = await row.query_selector_all("td")
                 row_text = await row.inner_text()
                 
-                # FILA DE TOTAL - Búsqueda más específica
+                # FILA DE TOTAL
                 if "TOTAL:" in row_text.upper() and "**" in row_text:
-                    print(f"✓ Fila TOTAL encontrada: {row_text[:100]}")
-                    # Buscar el número en negrita entre **
                     total_match = re.search(r'\*\*(\d+\.?\d*)\*\*', row_text)
                     if total_match:
                         total_general = float(total_match.group(1))
-                        print(f"✓ Total extraído: {total_general}")
+                        print(f"✓ Total: {total_general}")
                     else:
-                        # Fallback: buscar en celdas
                         if len(cells) >= 2:
                             for i in range(len(cells)-1, max(len(cells)-4, -1), -1):
                                 cell_text = await cells[i].inner_text()
@@ -62,7 +59,6 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                                     val = clean_val(cell_text)
                                     if val > 0:
                                         total_general = val
-                                        print(f"✓ Total (fallback): {total_general}")
                                         break
                     continue
                 
@@ -91,39 +87,53 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                             })
                             
                             print(f"✓ Item {numero}: ${v_total}")
-                    except Exception as e:
+                    except:
                         continue
 
-            # ===== EXTRAER ANEXOS - MEJORADO =====
+            # ===== EXTRAER ANEXOS CON LINKS =====
             try:
-                # Buscar todas las tablas con "ARCHIVO"
                 all_tables = await page.query_selector_all("table")
                 
                 for table in all_tables:
-                    table_html = await table.inner_html()
                     table_text = await table.inner_text()
                     
-                    # Solo procesar tablas de anexos
+                    # Solo tablas de anexos
                     if "ARCHIVO" in table_text.upper() and ("ADJUNTAR" in table_text.upper() or "ADICIONAL" in table_text.upper()):
                         print(f"✓ Procesando tabla de anexos...")
                         
-                        # Obtener filas
                         table_rows = await table.query_selector_all("tr")
                         
                         for trow in table_rows:
                             tcells = await trow.query_selector_all("td")
                             
-                            # Primera celda = nombre del archivo
-                            if len(tcells) >= 1:
+                            if len(tcells) >= 2:
+                                # Primera celda = nombre
                                 nombre_archivo = (await tcells[0].inner_text()).strip()
                                 
-                                # Filtros estrictos
+                                # Segunda celda = link de descarga
+                                link_element = await tcells[1].query_selector("input[type='image']")
+                                download_url = None
+                                
+                                if link_element:
+                                    # Obtener el onclick o src del botón de descarga
+                                    onclick = await link_element.get_attribute("onclick")
+                                    if onclick:
+                                        # Extraer ID del archivo del onclick
+                                        # Ejemplo: onclick="descargar('algún_id')"
+                                        match = re.search(r"descargar\(['\"]([^'\"]+)['\"]", onclick)
+                                        if match:
+                                            file_id = match.group(1)
+                                            download_url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCODescargarArchivo.cpe?id={file_id}"
+                                        else:
+                                            # Si no hay ID, usar la URL base
+                                            download_url = url
+                                
+                                # Validar nombre
                                 excluir = [
                                     "descripción", "archivo", "descargar", "adjuntar",
                                     "adicional", "observaciones", "publicación", "opcional"
                                 ]
                                 
-                                # Validar
                                 es_valido = (
                                     nombre_archivo and
                                     len(nombre_archivo) > 2 and
@@ -134,9 +144,9 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                                 if es_valido and not any(a["nombre"] == nombre_archivo for a in anexos):
                                     anexos.append({
                                         "nombre": nombre_archivo,
-                                        "url": url
+                                        "url": download_url or url  # URL de descarga o URL base
                                     })
-                                    print(f"✓ Anexo agregado: {nombre_archivo}")
+                                    print(f"✓ Anexo: {nombre_archivo} -> {download_url or 'URL base'}")
                 
             except Exception as e:
                 print(f"Error extrayendo anexos: {e}")

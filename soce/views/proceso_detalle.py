@@ -20,15 +20,20 @@ def oferta_row(oferta, ruc: str):
     )
 
 def anexo_badge(anexo, ruc: str):
-    """Badge de anexo individual"""
+    """Badge de anexo como link externo"""
     return rx.cond(
         anexo.ruc_proveedor == ruc,
-        rx.badge(
-            rx.icon("file-text", size=14),
-            " ",
-            anexo.nombre_archivo,
-            color_scheme="blue",
-            size="2"
+        rx.link(
+            rx.button(
+                rx.icon("file-down", size=14),
+                " ",
+                anexo.nombre_archivo,
+                variant="soft",
+                color_scheme="blue",
+                size="1"
+            ),
+            href=anexo.url_archivo,
+            is_external=True
         ),
         rx.fragment()
     )
