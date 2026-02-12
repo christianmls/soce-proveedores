@@ -12,7 +12,7 @@ class ProcesosState(State):
     proceso_url_id: str = "" 
     nuevo_codigo_proceso: str = ""
     nuevo_nombre_proceso: str = ""
-    categoria_id: str = ""
+    categoria_id: str = "" # Inicia como string vacío
     is_scraping: bool = False
     scraping_progress: str = ""
     
@@ -21,7 +21,8 @@ class ProcesosState(State):
     ofertas_actuales: List[Oferta] = []
     anexos_actuales: List[Anexo] = []
 
-    def set_current_view(self, view: str): self.current_view = view
+    # SETTERS EXPLÍCITOS
+    def set_current_view(self, val: str): self.current_view = val
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
     def set_categoria_id(self, val: str): self.categoria_id = val
@@ -46,7 +47,6 @@ class ProcesosState(State):
             session.commit()
         self.load_procesos()
 
-    # ELIMINACIÓN EN CASCADA MANUAL
     def eliminar_proceso(self, p_id: str):
         with rx.session() as session:
             barridos = session.exec(select(Barrido).where(Barrido.proceso_id == int(p_id))).all()
@@ -59,22 +59,25 @@ class ProcesosState(State):
             session.commit()
         self.load_procesos()
 
-    def load_proceso_detalle(self):
+    def ir_a_detalle(self, p_id: str):
+        self.proceso_id = int(p_id)
         with rx.session() as session:
             proc = session.get(Proceso, self.proceso_id)
             if proc:
                 self.proceso_url_id = proc.codigo_proceso
+                self.categoria_id = str(proc.categoria_id) # Sincronizamos categoría
                 ultimo_b = session.exec(select(Barrido).where(Barrido.proceso_id == self.proceso_id).order_by(desc(Barrido.id))).first()
                 if ultimo_b:
                     self.ofertas_actuales = session.exec(select(Oferta).where(Oferta.barrido_id == ultimo_b.id)).all()
                     self.anexos_actuales = session.exec(select(Anexo).where(Anexo.barrido_id == ultimo_b.id)).all()
-
-    def ir_a_detalle(self, p_id: str):
-        self.proceso_id = int(p_id)
-        self.load_proceso_detalle()
-        self.set_current_view("detalle_proceso")
+        self.current_view = "detalle_proceso"
 
     async def iniciar_scraping(self):
+        # VALIDACIÓN CRÍTICA PARA EVITAR VALUEERROR
+        if not self.categoria_id or self.categoria_id == "":
+            self.scraping_progress = "Error: Categoría no definida."
+            return
+
         self.is_scraping = True
         yield
         try:
@@ -83,9 +86,13 @@ class ProcesosState(State):
                 session.add(barrido)
                 session.commit()
                 session.refresh(barrido)
-                provs = session.exec(select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))).all()
+                
+                # Conversión segura
+                id_cat = int(self.categoria_id)
+                provs = session.exec(select(Proveedor).where(Proveedor.categoria_id == id_cat)).all()
+                
                 for i, p in enumerate(provs, 1):
-                    self.scraping_progress = f"({i}/{len(provs)}) Procesando RUC: {p.ruc}"
+                    self.scraping_progress = f"({i}/{len(provs)}) Procesando: {p.ruc}"
                     yield
                     res = await scrape_proceso(self.proceso_url_id, p.ruc)
                     if res:
@@ -98,7 +105,7 @@ class ProcesosState(State):
                         for an in res["anexos"]:
                             session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
                     session.commit()
-            self.load_proceso_detalle()
+            self.ir_a_detalle(str(self.proceso_id))
             self.scraping_progress = "Finalizado"
         finally:
-            self.is_scraping = False # Desbloquea la UI pase lo que pase
+            self.is_scraping = False

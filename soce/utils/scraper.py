@@ -15,27 +15,28 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
     browser = None
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
+            browser = await p.chromium.launch(
+                headless=True, 
+                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-setuid-sandbox']
+            )
             page = await browser.new_page()
             await page.goto(url, wait_until='domcontentloaded', timeout=45000)
             await page.wait_for_timeout(4000)
             
-            # 1. CAPTURA DEL TOTAL (Ubicado en el segundo tbody)
+            # 1. TOTAL GENERAL (Ubicado en el 2do tbody)
             total_general = 0.0
             try:
-                # Buscamos la fila que contiene el texto TOTAL: sin importar el tbody
+                # Localizamos la fila que contiene "TOTAL:" sin importar el tbody
                 total_row = page.locator("tr:has-text('TOTAL:')")
-                # El valor suele estar en la penúltima celda de esa fila
                 total_text = await total_row.locator("td").last.inner_text()
                 total_general = clean_val(total_text)
             except: pass
 
-            # 2. PRODUCTOS (Primer tbody)
+            # 2. ÍTEMS (Estructura de 9 columnas)
             items = []
             rows = await page.query_selector_all("table tr")
             for row in rows:
                 cells = await row.query_selector_all("td")
-                # Filtramos filas que tengan al menos 8 columnas (No, CPC, CPC-Desc, Prod-Desc, Unid, Cant, V.Unit, V.Tot)
                 if len(cells) >= 8:
                     txt = await row.inner_text()
                     if "TOTAL" in txt or "Descripción" in txt or "No." in txt: continue
@@ -43,7 +44,6 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         items.append({
                             "numero": (await cells[0].inner_text()).strip(),
                             "cpc": (await cells[1].inner_text()).strip(),
-                            # Unimos descripción de CPC y Producto para no perder datos
                             "desc": f"[{ (await cells[1].inner_text()).strip() }] {(await cells[3].inner_text()).strip()}",
                             "unid": (await cells[4].inner_text()).strip(),
                             "cant": clean_val(await cells[5].inner_text()),
@@ -52,7 +52,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         })
                     except: continue
 
-            # 3. ANEXOS (Botones de tipo imagen con icono de disquete)
+            # 3. ANEXOS (Botones de tipo imagen)
             anexos = []
             anexo_btns = await page.query_selector_all("input[type='image']")
             for btn in anexo_btns:
@@ -61,16 +61,13 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                     celdas = await fila.query_selector_all("td")
                     if celdas:
                         nombre = (await celdas[0].inner_text()).strip()
-                        # Evitamos capturar encabezados
-                        if nombre and "Descripción" not in nombre and "Archivo" not in nombre:
+                        if nombre and "Archivo" not in nombre and "Descripción" not in nombre:
                             anexos.append({"nombre": nombre, "url": url})
                 except: continue
 
             await browser.close()
-            # Si no hay ítems y el total es 0, la proforma no es válida
             if not items and total_general <= 0: return None
-            
-            return {"razon_social": "N/D", "items": items, "anexos": anexos}
-    except Exception:
+            return {"total": total_general, "items": items, "anexos": anexos}
+    except:
         if browser: await browser.close()
         return None
