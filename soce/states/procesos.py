@@ -8,6 +8,7 @@ from sqlmodel import select, desc
 from ..utils.scraper import scrape_proceso
 
 class ProcesosState(State):
+    # --- Configuración Base ---
     current_view: str = "procesos"
     proceso_id: int = 0
     proceso_url_id: str = "" 
@@ -15,15 +16,19 @@ class ProcesosState(State):
     nuevo_nombre_proceso: str = ""
     categoria_id: str = ""
     nombre_categoria_actual: str = ""
+    
+    # --- Estado del Scraper ---
     is_scraping: bool = False
     scraping_progress: str = ""
     
+    # --- Datos ---
     categorias: list[Categoria] = []
     procesos: list[Proceso] = []
     proceso_actual: Optional[Proceso] = None
     ofertas_actuales: list[Oferta] = []
     barrido_actual_id: Optional[int] = None
 
+    # --- Computados ---
     @rx.var
     def lista_procesos_formateada(self) -> List[Dict[str, Any]]:
         return [
@@ -61,6 +66,7 @@ class ProcesosState(State):
     def tiene_ofertas(self) -> bool:
         return len(self.ofertas_actuales) > 0
 
+    # --- Navegación ---
     def ir_a_detalle(self, p_id: str):
         self.proceso_id = int(p_id)
         self.scraping_progress = ""
@@ -79,6 +85,7 @@ class ProcesosState(State):
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
     def set_categoria_id(self, val: str): self.categoria_id = val
 
+    # --- Base de Datos ---
     def load_procesos(self):
         with rx.session() as session:
             self.procesos = session.exec(select(Proceso).order_by(desc(Proceso.fecha_creacion))).all()
@@ -135,6 +142,7 @@ class ProcesosState(State):
                     self.ofertas_actuales = []
                     self.scraping_progress = "No hay datos previos."
 
+    # --- SCRAPING PRINCIPAL ---
     async def iniciar_scraping(self):
         pid = self.proceso_id
         if not pid or not self.categoria_id:
@@ -149,6 +157,7 @@ class ProcesosState(State):
         yield
         
         try:
+            # 1. Crear Barrido
             with rx.session() as session:
                 barrido = Barrido(
                     proceso_id=pid,
@@ -161,18 +170,20 @@ class ProcesosState(State):
                 session.refresh(barrido)
                 barrido_id_local = barrido.id
 
+            # 2. Cargar Proveedores
             with rx.session() as session:
                 proveedores = session.exec(
                     select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))
                 ).all()
 
             if not proveedores:
-                self.scraping_progress = "⚠️ No hay proveedores en esta categoría"
+                self.scraping_progress = "⚠️ No hay proveedores"
                 return
             
             total = len(proveedores)
             exitosos = 0
             
+            # 3. Iterar Proveedores
             for i, proveedor in enumerate(proveedores, 1):
                 if not self.is_scraping: break
 
@@ -180,12 +191,13 @@ class ProcesosState(State):
                 yield
                 
                 try:
-                    # RECIBIMOS LISTA DE ITEMS
+                    # Obtenemos la LISTA de productos de la tabla
                     lista_items = await scrape_proceso(self.proceso_url_id, proveedor.ruc)
                     
                     with rx.session() as session:
                         if lista_items:
                             exitosos += 1
+                            # 4. Guardar CADA FILA como una oferta
                             for item in lista_items:
                                 oferta = Oferta(
                                     barrido_id=barrido_id_local,
@@ -197,6 +209,7 @@ class ProcesosState(State):
                                     provincia=item.get('provincia', ''),
                                     canton=item.get('canton', ''),
                                     direccion=item.get('direccion', ''),
+                                    # Aquí se guarda el producto individual
                                     descripcion_producto=item.get('descripcion_producto', ''),
                                     unidad=item.get('unidad', ''),
                                     cantidad=item.get('cantidad', 0.0),
@@ -208,6 +221,7 @@ class ProcesosState(State):
                                 )
                                 session.add(oferta)
                         else:
+                            # Si no hay datos, guardamos registro vacío
                             oferta = Oferta(
                                 barrido_id=barrido_id_local,
                                 ruc_proveedor=proveedor.ruc,
@@ -222,6 +236,7 @@ class ProcesosState(State):
                 except Exception as e:
                     print(f"Error procesando {proveedor.ruc}: {e}")
             
+            # 5. Finalizar
             with rx.session() as session:
                 b = session.get(Barrido, barrido_id_local)
                 b.estado = "completado"
