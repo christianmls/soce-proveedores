@@ -14,13 +14,16 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             await page.goto(url, wait_until='domcontentloaded', timeout=30000)
             await page.wait_for_timeout(3000)
             
-            # 1. VALIDACIÓN DE TOTAL (Si es 0 o no existe, descartamos)
+            # 1. VALIDACIÓN: Si el total es 0 o los campos están vacíos, no es una oferta válida
             total_val = 0.0
             try:
-                total_text = await page.locator("text='TOTAL:'").locator("xpath=following-sibling::td[1]").inner_text()
+                # Buscamos el texto del total en la tabla
+                total_row = page.locator("tr:has-text('TOTAL:')")
+                total_text = await total_row.locator("td").last.inner_text()
                 total_val = float(re.sub(r'[^\d\.]', '', total_text.replace(',', '')))
             except: pass
             
+            # Si el total es 0 o aparece el mensaje de "proforma enviada", devolvemos None
             if total_val <= 0:
                 await browser.close()
                 return None
@@ -50,7 +53,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         })
                     except: continue
 
-            # 4. ANEXOS
+            # 4. ANEXOS (Detección de iconos de disquete)
             anexos = []
             anexo_rows = await page.query_selector_all("tr:has(input[type='image'])")
             for a_row in anexo_rows:
