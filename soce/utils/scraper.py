@@ -1,11 +1,13 @@
 from playwright.async_api import async_playwright
 import re
-from typing import Dict, Optional, List
+from typing import Dict, Optional
 import asyncio
+from urllib.parse import urljoin
 
 async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
     pid_clean = proceso_id.rstrip(',')
     url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOProformaRegistrada.cpe?id={pid_clean}&ruc={ruc}"
+    base_url = "https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/"
     
     def clean_val(txt: str) -> float:
         if not txt: 
@@ -90,14 +92,13 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                     except:
                         continue
 
-            # ===== EXTRAER ANEXOS CON LINKS =====
+            # ===== EXTRAER ANEXOS CON LINKS ABSOLUTOS =====
             try:
                 all_tables = await page.query_selector_all("table")
                 
                 for table in all_tables:
                     table_text = await table.inner_text()
                     
-                    # Solo tablas de anexos
                     if "ARCHIVO" in table_text.upper() and ("ADJUNTAR" in table_text.upper() or "ADICIONAL" in table_text.upper()):
                         print(f"✓ Procesando tabla de anexos...")
                         
@@ -110,23 +111,36 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                                 # Primera celda = nombre
                                 nombre_archivo = (await tcells[0].inner_text()).strip()
                                 
-                                # Segunda celda = link de descarga
-                                link_element = await tcells[1].query_selector("input[type='image']")
+                                # Segunda celda = buscar el link
                                 download_url = None
                                 
+                                # Buscar input type='image' (botón de descarga)
+                                link_element = await tcells[1].query_selector("input[type='image']")
+                                
                                 if link_element:
-                                    # Obtener el onclick o src del botón de descarga
+                                    # Obtener onclick
                                     onclick = await link_element.get_attribute("onclick")
+                                    
                                     if onclick:
-                                        # Extraer ID del archivo del onclick
-                                        # Ejemplo: onclick="descargar('algún_id')"
-                                        match = re.search(r"descargar\(['\"]([^'\"]+)['\"]", onclick)
+                                        # Ejemplo: onclick="window.open('../GE/ExeGENBajarArchivoGeneral.cpe?Archivo=...')"
+                                        # Extraer la URL relativa
+                                        match = re.search(r"window\.open\(['\"]([^'\"]+)['\"]", onclick)
                                         if match:
-                                            file_id = match.group(1)
-                                            download_url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCODescargarArchivo.cpe?id={file_id}"
-                                        else:
-                                            # Si no hay ID, usar la URL base
-                                            download_url = url
+                                            relative_url = match.group(1)
+                                            # Convertir a URL absoluta
+                                            # ../GE/... -> https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/GE/...
+                                            if relative_url.startswith('../'):
+                                                # Remover ../ y agregar base
+                                                relative_url = relative_url.replace('../', '')
+                                                download_url = base_url + relative_url
+                                            elif relative_url.startswith('/'):
+                                                # URL absoluta desde la raíz
+                                                download_url = "https://www.compraspublicas.gob.ec" + relative_url
+                                            else:
+                                                # URL relativa sin ../
+                                                download_url = base_url + relative_url
+                                            
+                                            print(f"✓ Link extraído: {download_url}")
                                 
                                 # Validar nombre
                                 excluir = [
@@ -142,14 +156,19 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                                 )
                                 
                                 if es_valido and not any(a["nombre"] == nombre_archivo for a in anexos):
+                                    # Usar URL de descarga o URL base como fallback
+                                    final_url = download_url if download_url else url
+                                    
                                     anexos.append({
                                         "nombre": nombre_archivo,
-                                        "url": download_url or url  # URL de descarga o URL base
+                                        "url": final_url
                                     })
-                                    print(f"✓ Anexo: {nombre_archivo} -> {download_url or 'URL base'}")
+                                    print(f"✓ Anexo guardado: {nombre_archivo} -> {final_url}")
                 
             except Exception as e:
                 print(f"Error extrayendo anexos: {e}")
+                import traceback
+                traceback.print_exc()
 
             # Cerrar navegador
             if page:
