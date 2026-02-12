@@ -57,9 +57,13 @@ class ProcesosState(State):
         return totales
 
     def load_procesos(self):
+        """Carga todos los procesos"""
+        print("[DEBUG] Cargando procesos...")
         with rx.session() as session:
             self.procesos = session.exec(select(Proceso).order_by(desc(Proceso.id))).all()
             self.categorias = session.exec(select(Categoria)).all()
+            print(f"[DEBUG] Procesos cargados: {len(self.procesos)}")
+            print(f"[DEBUG] Categorías cargadas: {len(self.categorias)}")
 
     def crear_proceso(self):
         if not self.nuevo_codigo_proceso or not self.categoria_id: 

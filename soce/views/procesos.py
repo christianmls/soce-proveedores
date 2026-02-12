@@ -130,23 +130,39 @@ def procesos_view():
                 margin_bottom="6"
             ),
             
-            # Tabla de procesos
-            rx.table.root(
-                rx.table.header(
-                    rx.table.row(
-                        rx.table.column_header_cell("Código"),
-                        rx.table.column_header_cell("Fecha Creación"),
-                        rx.table.column_header_cell("Acciones", width="150px")
-                    )
+            # Mostrar mensaje si no hay procesos o tabla
+            rx.cond(
+                ProcesosState.procesos.length() > 0,
+                # Tabla de procesos
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            rx.table.column_header_cell("Código"),
+                            rx.table.column_header_cell("Fecha Creación"),
+                            rx.table.column_header_cell("Acciones", width="150px")
+                        )
+                    ),
+                    rx.table.body(
+                        rx.foreach(
+                            ProcesosState.lista_procesos_formateada,
+                            proceso_row
+                        )
+                    ),
+                    width="100%",
+                    variant="surface"
                 ),
-                rx.table.body(
-                    rx.foreach(
-                        ProcesosState.lista_procesos_formateada,
-                        proceso_row
-                    )
-                ),
-                width="100%",
-                variant="surface"
+                # Mensaje cuando no hay procesos
+                rx.card(
+                    rx.vstack(
+                        rx.icon("inbox", size=48, color="gray"),
+                        rx.text("No hay procesos registrados", size="4", weight="bold"),
+                        rx.text("Crea un nuevo proceso para comenzar", size="2", color="gray"),
+                        spacing="3",
+                        align_items="center",
+                        padding="8"
+                    ),
+                    width="100%"
+                )
             ),
             
             spacing="6",
