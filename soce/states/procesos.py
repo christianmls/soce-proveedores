@@ -11,7 +11,7 @@ class ProcesosState(State):
     categoria_id: str = ""
     
     # Control del scraping
-    is_scraping: bool = False  # Asegúrate que esté en False inicialmente
+    is_scraping: bool = False
     scraping_progress: str = "Esperando configuración..."
     
     # Datos
@@ -80,55 +80,83 @@ class ProcesosState(State):
             yield
             
             try:
+                # Llamar a la función de scraping
                 datos = await scrape_proceso(self.proceso_url_id, proveedor.ruc)
                 
                 if datos:
+                    # Guardar en la base de datos con todos los campos
                     with rx.session() as session:
                         proceso = Proceso(
                             proceso_id=self.proceso_url_id,
                             ruc_proveedor=proveedor.ruc,
-                            nombre_proveedor=datos.get("nombre_proveedor", proveedor.nombre or ""),
-                            objeto_proceso=datos.get("objeto", ""),
-                            valor_adjudicado=datos.get("valor_total", 0.0),
+                            
+                            # Datos del proveedor
+                            razon_social=datos.get('razon_social', ''),
+                            correo_electronico=datos.get('correo_electronico', ''),
+                            telefono=datos.get('telefono', ''),
+                            pais=datos.get('pais', ''),
+                            provincia=datos.get('provincia', ''),
+                            canton=datos.get('canton', ''),
+                            direccion=datos.get('direccion', ''),
+                            
+                            # Datos del producto
+                            descripcion_producto=datos.get('descripcion_producto', ''),
+                            unidad=datos.get('unidad', ''),
+                            cantidad=datos.get('cantidad', 0.0),
+                            valor_unitario=datos.get('valor_unitario', 0.0),
+                            valor_total=datos.get('valor_total', 0.0),
+                            
+                            # Metadatos
                             fecha_barrido=datetime.now(),
                             estado="procesado",
-                            datos_json=str(datos)
+                            tiene_archivos=datos.get('tiene_archivos', False),
+                            datos_completos_json=str(datos)
                         )
                         session.add(proceso)
                         session.commit()
+                    
                     exitosos += 1
+                    self.scraping_progress = f"✅ {idx}/{total}: Datos completos para {datos.get('razon_social', proveedor.ruc)}"
                 else:
+                    # Marcar como sin datos
                     with rx.session() as session:
                         proceso = Proceso(
                             proceso_id=self.proceso_url_id,
                             ruc_proveedor=proveedor.ruc,
-                            nombre_proveedor=proveedor.nombre or "",
+                            razon_social=proveedor.nombre or "",
                             fecha_barrido=datetime.now(),
                             estado="sin_datos"
                         )
                         session.add(proceso)
                         session.commit()
+                    
                     sin_datos += 1
+                    self.scraping_progress = f"⚪ {idx}/{total}: Sin datos para {proveedor.ruc}"
                 
                 yield
                         
             except Exception as e:
+                # Guardar error
                 with rx.session() as session:
                     proceso = Proceso(
                         proceso_id=self.proceso_url_id,
                         ruc_proveedor=proveedor.ruc,
-                        nombre_proveedor=proveedor.nombre or "",
+                        razon_social=proveedor.nombre or "",
                         fecha_barrido=datetime.now(),
                         estado="error",
-                        datos_json=str(e)
+                        datos_completos_json=str(e)
                     )
                     session.add(proceso)
                     session.commit()
+                
                 errores += 1
+                self.scraping_progress = f"❌ {idx}/{total}: Error en {proveedor.ruc} - {str(e)}"
                 yield
             
-            await asyncio.sleep(1)
+            # Pequeña pausa entre requests para no sobrecargar el servidor
+            await asyncio.sleep(2)
         
+        # Resumen final
         self.scraping_progress = f"✅ Completado! Exitosos: {exitosos} | Sin datos: {sin_datos} | Errores: {errores}"
         self.is_scraping = False
         self.load_procesos()
