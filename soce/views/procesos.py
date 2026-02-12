@@ -18,17 +18,20 @@ def procesos_view() -> rx.Component:
                     rx.input(
                         placeholder="Ej: xrMof...", 
                         on_change=ProcesosState.set_nuevo_codigo_proceso,
-                        value=ProcesosState.nuevo_codigo_proceso
+                        value=ProcesosState.nuevo_codigo_proceso,
+                        width="100%"
                     ),
                     
                     rx.text("Nombre (Opcional)", size="2", weight="bold"),
                     rx.input(
                         placeholder="Descripción corta", 
                         on_change=ProcesosState.set_nuevo_nombre_proceso,
-                        value=ProcesosState.nuevo_nombre_proceso
+                        value=ProcesosState.nuevo_nombre_proceso,
+                        width="100%"
                     ),
                     
-                    rx.text("Categoría de Proveedores", size="2", weight="bold"),
+                    # --- AQUÍ ESTÁ EL SELECTOR DE CATEGORÍA ---
+                    rx.text("Categoría", size="2", weight="bold"),
                     rx.select.root(
                         rx.select.trigger(placeholder="Seleccionar Categoría..."),
                         rx.select.content(
@@ -90,6 +93,7 @@ def procesos_view() -> rx.Component:
             width="100%", variant="surface",
         ),
         
+        # Cargamos procesos y categorías al entrar
         on_mount=[ProcesosState.load_procesos, ProcesosState.load_categorias],
         spacing="5", padding="4", width="100%"
     )

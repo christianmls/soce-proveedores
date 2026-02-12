@@ -8,7 +8,7 @@ def oferta_detalle_card(o: dict) -> rx.Component:
             rx.hstack(
                 rx.heading(f"Proveedor: {o['razon_social']}", size="4"),
                 rx.spacer(),
-                rx.badge(o["estado"], color_scheme="blue"),
+                rx.badge(o["estado"], color_scheme=rx.cond(o["estado"]=="procesado", "green", "gray")),
                 width="100%"
             ),
             rx.grid(
@@ -64,6 +64,7 @@ def proceso_detalle_view() -> rx.Component:
             rx.vstack(
                 rx.heading("Detalle del Proceso", size="6"),
                 rx.text(f"Código: {ProcesosState.proceso_url_id}", font_family="monospace"),
+                # Mostramos la categoría asociada (Read Only)
                 rx.hstack(
                     rx.badge("Categoría:", variant="outline"),
                     rx.text(ProcesosState.nombre_categoria_actual, weight="bold"),
@@ -73,17 +74,17 @@ def proceso_detalle_view() -> rx.Component:
             width="100%"
         ),
 
-        # Barra de Control de Scraping
+        # Barra de Acción (Botón Iniciar + Estado)
         rx.card(
             rx.hstack(
                 rx.button(
-                    rx.cond(ProcesosState.is_scraping, "Procesando...", "▶️ Iniciar Nuevo Barrido"), 
+                    rx.cond(ProcesosState.is_scraping, "Procesando...", "▶️ Iniciar Barrido"), 
                     on_click=ProcesosState.iniciar_scraping, 
                     disabled=ProcesosState.is_scraping, 
                     color_scheme="grass",
                     size="3"
                 ),
-                rx.text(ProcesosState.scraping_progress, weight="medium"),
+                rx.text(ProcesosState.scraping_progress, weight="medium", color_scheme="gray"),
                 align_items="center", spacing="4"
             ),
             width="100%"
@@ -96,12 +97,12 @@ def proceso_detalle_view() -> rx.Component:
             rx.cond(
                 ProcesosState.tiene_ofertas,
                 "Resultados del Último Barrido",
-                "No hay ofertas registradas aún."
+                "No hay ofertas para mostrar. Inicia un barrido."
             ), 
             size="5"
         ),
 
-        # --- AQUÍ LAS OFERTAS DIRECTAMENTE (Sin tabla previa) ---
+        # --- CONTENEDOR DE OFERTAS (DIRECTO) ---
         rx.vstack(
             rx.foreach(
                 ProcesosState.ofertas_formateadas,
