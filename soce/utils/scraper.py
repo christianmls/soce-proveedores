@@ -14,7 +14,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             await page.goto(url, wait_until='domcontentloaded', timeout=30000)
             await page.wait_for_timeout(3000)
             
-            # 1. VALIDACIÓN DE TOTAL (Si es 0 o error, descartamos)
+            # 1. VALIDACIÓN DE TOTAL: Si es 0, la proforma no es válida o está vacía
             try:
                 total_text = await page.locator("td:has-text('TOTAL:') + td").inner_text()
                 total_val = float(re.sub(r'[^\d\.]', '', total_text.replace(',', '')))
@@ -30,7 +30,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             razon_match = re.search(r'Razón Social[:\s]+([^\n]+)', texto_completo)
             razon_social = razon_match.group(1).strip() if razon_match else "N/D"
 
-            # 3. ÍTEMS (Col 1 a 7)
+            # 3. EXTRACCIÓN DE ÍTEMS (Col 1-7)
             items = []
             rows = await page.query_selector_all("table tr")
             for row in rows:
@@ -50,7 +50,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         })
                     except: continue
 
-            # 4. ANEXOS CON URL
+            # 4. ANEXOS
             anexos = []
             anexo_rows = await page.query_selector_all("tr:has(input[type='image'])")
             for a_row in anexo_rows:
@@ -58,7 +58,6 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                 btn = await a_row.query_selector("input[type='image']")
                 if len(a_cells) >= 1 and btn:
                     nombre = (await a_cells[0].inner_text()).strip()
-                    # Capturamos la URL del botón de descarga
                     link = await btn.get_attribute("src") or url
                     if nombre and "Archivo" not in nombre:
                         anexos.append({"nombre": nombre, "url": link})
