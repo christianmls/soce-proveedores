@@ -15,25 +15,22 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
     browser = None
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True, 
-                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-setuid-sandbox']
-            )
+            browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
             page = await browser.new_page()
             await page.goto(url, wait_until='domcontentloaded', timeout=45000)
             await page.wait_for_timeout(4000)
             
-            # 1. CAPTURA DEL TOTAL (Ubicado en el segundo tbody)
+            # 1. TOTAL GENERAL (Selector dinámico para el 2do tbody)
             total_general = 0.0
             try:
                 # Buscamos la fila que contiene el texto TOTAL:
                 fila_total = page.locator("tr:has-text('TOTAL:')")
-                # El valor está en la celda anterior al texto "USD."
+                # El valor está en el penúltimo td (el último es 'USD.')
                 texto_total = await fila_total.locator("td").nth(-2).inner_text()
                 total_general = clean_val(texto_total)
             except: pass
 
-            # 2. PRODUCTOS (Primer tbody - Estructura de 9 columnas)
+            # 2. PRODUCTOS (Primer tbody)
             items = []
             rows = await page.query_selector_all("table tr")
             for row in rows:
@@ -53,7 +50,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         })
                     except: continue
 
-            # 3. ANEXOS (Botones de descarga)
+            # 3. ANEXOS
             anexos = []
             anexo_btns = await page.query_selector_all("input[type='image']")
             for btn in anexo_btns:
@@ -62,7 +59,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                     celdas = await fila.query_selector_all("td")
                     if celdas:
                         nombre = (await celdas[0].inner_text()).strip()
-                        if nombre and "Descripción" not in nombre and "Archivo" not in nombre:
+                        if nombre and "Archivo" not in nombre and "Descripción" not in nombre:
                             anexos.append({"nombre": nombre, "url": url})
                 except: continue
 

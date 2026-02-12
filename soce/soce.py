@@ -32,9 +32,9 @@ def index() -> rx.Component:
                 ("detalle_proceso", proceso_detalle_view()),
                 procesos_view()
             ),
-            flex="1", padding="8", width="100%", min_height="100vh", background_color=rx.color("gray", 1) #
+            flex="1", padding="8", width="100%", min_height="100vh", background_color=rx.color("gray", 1)
         ),
-        spacing="0", width="100%", height="100vh", align_items="stretch" # Ocupa todo el espacio
+        spacing="0", width="100%", height="100vh", align_items="stretch" # ESTIRA TODO AL 100%
     )
 
 app = rx.App()

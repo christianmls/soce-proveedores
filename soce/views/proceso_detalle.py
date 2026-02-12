@@ -2,6 +2,9 @@ import reflex as rx
 from ..states.procesos import ProcesosState
 
 def oferta_card(ruc: str):
+    # Sumar los totales de las ofertas filtradas por este RUC
+    total_proforma = sum(float(o.valor_total) for o in ProcesosState.ofertas_actuales if o.ruc_proveedor == ruc)
+    
     return rx.card(
         rx.vstack(
             rx.heading(f"Proveedor RUC: {ruc}", size="4", color_scheme="grass"),
@@ -19,6 +22,12 @@ def oferta_card(ruc: str):
                             o.ruc_proveedor == ruc, 
                             rx.table.row(rx.table.cell(o.numero_item), rx.table.cell(o.descripcion_producto), rx.table.cell(o.valor_total))
                         )
+                    ),
+                    # FILA DE TOTAL CALCULADA
+                    rx.table.row(
+                        rx.table.cell(""), rx.table.cell("TOTAL PROFORMA", weight="bold", align="right"),
+                        rx.table.cell(f"{total_proforma:,.2f}", weight="bold", color="green"),
+                        background_color=rx.color("gray", 3)
                     )
                 ),
                 width="100%"
@@ -60,5 +69,5 @@ def proceso_detalle_view():
             rx.foreach(ProcesosState.rucs_unicos, oferta_card),
             width="100%", align_items="stretch"
         ),
-        width="100%", padding="4"
+        width="100%", padding="4", align_items="stretch"
     )
