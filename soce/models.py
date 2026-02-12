@@ -1,7 +1,6 @@
 import reflex as rx
-from typing import Optional
-from sqlmodel import Field
-from sqlalchemy import Column, DateTime, func
+from typing import Optional, List
+from sqlmodel import Field, Relationship
 from datetime import datetime
 
 class Categoria(rx.Model, table=True):
@@ -12,12 +11,9 @@ class Proveedor(rx.Model, table=True):
     ruc: str
     nombre: Optional[str] = ""
     contacto: str = ""
-    
-    # Añade un nombre a la clave foránea usando sa_column_kwargs
     categoria_id: Optional[int] = Field(
         default=None, 
-        foreign_key="categoria.id",
-        sa_column_kwargs={"name": "categoria_id"}
+        foreign_key="categoria.id"
     )
 
 class Proceso(rx.Model, table=True):
@@ -36,18 +32,18 @@ class Oferta(rx.Model, table=True):
     barrido_id: int = Field(foreign_key="barrido.id")
     ruc_proveedor: str
     razon_social: Optional[str] = ""
-    numero_item: str
-    cpc: str
-    descripcion_producto: str
-    unidad: str
-    cantidad: float
-    valor_unitario: float
-    valor_total: float
+    numero_item: str = ""
+    cpc: str = ""
+    descripcion_producto: str = ""
+    unidad: str = ""
+    cantidad: float = 0.0
+    valor_unitario: float = 0.0
+    valor_total: float = 0.0
     fecha_scraping: Optional[datetime] = None
 
 class Anexo(rx.Model, table=True):
     barrido_id: int = Field(foreign_key="barrido.id")
     ruc_proveedor: str
     nombre_archivo: str
-    url_archivo: str 
-    fecha_registro: datetime = Field(default_factory=datetime.now)
+    url_archivo: str = ""
+    fecha_registro: Optional[datetime] = None
