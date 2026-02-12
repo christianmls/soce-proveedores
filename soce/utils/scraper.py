@@ -1,15 +1,17 @@
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 import re
-from typing import Optional, Dict
+from typing import List, Dict, Optional
 
-async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
+async def scrape_proceso(proceso_id: str, ruc: str) -> List[Dict]:
     """
-    Scraper Multi-Fila:
-    1. Recorre TODAS las filas de productos para concatenar descripciones.
-    2. Extrae el TOTAL oficial del pie de página.
-    3. Detecta archivos adjuntos.
+    Retorna una LISTA de diccionarios.
+    Cada ítem de la lista representa una fila de producto encontrada en la tabla.
     """
-    url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOProformaRegistrada.cpe?id={proceso_id}&ruc={ruc}"
+    # Limpieza del ID
+    pid_clean = proceso_id.rstrip(',')
+    url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOProformaRegistrada.cpe?id={pid_clean}&ruc={ruc}"
+    
+    lista_items = []
     
     browser = None
     try:
@@ -21,26 +23,23 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             
             page = await browser.new_page()
             
-            # Cargar página
             try:
                 await page.goto(url, wait_until='domcontentloaded', timeout=30000)
             except PlaywrightTimeout:
                 print(f"Timeout cargando RUC {ruc}")
                 await browser.close()
-                return None
+                return []
             
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(2500)
             texto_completo = await page.inner_text('body')
             
-            # Validar existencia
             if any(p in texto_completo.lower() for p in ['no se encontr', 'sin datos', 'no existe']):
                 await browser.close()
-                return None
+                return []
             
-            datos = {}
-            datos['ruc'] = ruc 
-
-            # ===== 1. DATOS DEL PROVEEDOR (Regex) =====
+            # --- DATOS COMUNES DEL PROVEEDOR ---
+            datos_base = {'ruc': ruc}
+            
             patterns = {
                 'razon_social': [r'Razón Social[:\s]+([^\n]+)', r'Nombre[:\s]+([^\n]+)'],
                 'correo_electronico': [r'Correo electrónico[:\s]+([^\s\n]+@[^\s\n]+)'],
@@ -55,117 +54,95 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                 for pat in pat_list:
                     match = re.search(pat, texto_completo, re.IGNORECASE)
                     if match:
-                        datos[key] = match.group(1).strip()
+                        datos_base[key] = match.group(1).strip()
                         break
-            
-            # Helper numérico
+
             def clean_float(txt):
                 if not txt: return 0.0
-                # Eliminar $ y USD, y comas de miles
-                t = txt.replace('USD', '').replace('$', '').strip()
-                t = t.replace(',', '') 
+                clean = re.sub(r'[^\d\.]', '', txt.replace(',', '')) 
                 try:
-                    return float(t)
+                    return float(clean)
                 except:
                     return 0.0
 
-            # ===== 2. TABLA DE PRODUCTOS (MULTI-FILA) =====
-            descripciones = []
-            cantidades = []
-            
-            tablas = await page.query_selector_all('table')
-            
-            for tabla in tablas:
-                header_text = await tabla.inner_text()
-                # Verificar que sea la tabla de productos
-                if not ('descripci' in header_text.lower() and 'valor' in header_text.lower()):
-                    continue
-                
-                filas = await tabla.query_selector_all('tr')
-                
-                for fila in filas:
-                    texto_fila = await fila.inner_text()
-                    celdas = await fila.query_selector_all('td')
-
-                    # A) BUSCAR TOTAL (Prioridad)
-                    if "TOTAL:" in texto_fila:
-                        for celda in celdas:
-                            txt = await celda.inner_text()
-                            # Si es número y no es la etiqueta "TOTAL"
-                            if any(c.isdigit() for c in txt) and "TOTAL" not in txt:
-                                val = clean_float(txt)
-                                if val > 0:
-                                    datos['valor_total'] = val
-                        continue # No intentamos procesar esta fila como producto
-
-                    # B) BUSCAR PRODUCTO
-                    # Filtro: debe tener columnas suficientes y no ser header
-                    if len(celdas) >= 6 and "descripci" not in texto_fila.lower():
-                        try:
-                            # Índices dinámicos (ajuste por columna 'No.')
-                            idx_desc = 2 if len(celdas) >= 7 else 1
-                            idx_cant = 4 if len(celdas) >= 7 else 3
-                            idx_vunit = 5 if len(celdas) >= 7 else 4
-
-                            desc_text = (await celdas[idx_desc].inner_text()).strip()
-                            
-                            # Validar que sea un producto real
-                            if len(desc_text) > 2:
-                                descripciones.append(desc_text)
-                                cantidades.append(clean_float(await celdas[idx_cant].inner_text()))
-                                
-                                # Guardamos el primer valor unitario como referencia
-                                if 'valor_unitario' not in datos:
-                                    datos['valor_unitario'] = clean_float(await celdas[idx_vunit].inner_text())
-                        except:
-                            continue
-                
-                # Si encontramos productos en esta tabla, asumimos que es la correcta y salimos
-                if descripciones:
-                    break
-
-            # ===== 3. CONSOLIDACIÓN =====
-            if descripciones:
-                # Si hay más de 1 producto, creamos un resumen
-                if len(descripciones) > 1:
-                    # Ejemplo: "Hosting + Dominio (2 ítems)"
-                    resumen = " + ".join(descripciones)
-                    # Si es muy largo, lo cortamos
-                    if len(resumen) > 150:
-                        resumen = f"{descripciones[0]} y {len(descripciones)-1} más..."
-                    datos['descripcion_producto'] = resumen
-                    datos['unidad'] = "Varios"
-                else:
-                    datos['descripcion_producto'] = descripciones[0]
-                    datos['unidad'] = "Unidad" # O extraer de la tabla si es crítico
-                
-                datos['cantidad'] = sum(cantidades)
-            
-            # Respaldo para el total si falló la lectura de tabla
-            if 'valor_total' not in datos:
-                match_total = re.search(r'TOTAL[:\s]+([\d\.]+)', texto_completo)
-                if match_total:
-                    datos['valor_total'] = float(match_total.group(1))
-
-            # ===== 4. ARCHIVOS / ANEXOS =====
-            # Buscamos botones de descarga (imágenes o inputs)
-            botones_descarga = await page.query_selector_all("input[type='image'], img[src*='descargar'], img[src*='download']")
-            
-            # O enlaces explícitos
-            enlaces_descarga = await page.query_selector_all("a[href*='descargar']")
-            
-            # O sección de texto
+            # --- DETECCIÓN DE ARCHIVOS (Común para todos los ítems) ---
+            botones_descarga = await page.query_selector_all("input[type='image'], img[src*='descargar'], img[src*='download'], a[href*='descargar']")
             anexos_section = await page.query_selector("text='Documentos Anexos'")
+            tiene_archivos = (len(botones_descarga) > 0) or (anexos_section is not None)
+            datos_base['tiene_archivos'] = tiene_archivos
+
+            # --- EXTRACCIÓN FILA POR FILA ---
+            filas = await page.query_selector_all('tr')
             
-            datos['tiene_archivos'] = len(botones_descarga) > 0 or len(enlaces_descarga) > 0 or (anexos_section is not None)
+            # Variable para guardar el Gran Total si aparece al final
+            gran_total = 0.0
+
+            for fila in filas:
+                texto_fila = await fila.inner_text()
+                
+                # 1. Si es la fila de TOTAL GENERAL
+                if "TOTAL:" in texto_fila:
+                    celdas = await fila.query_selector_all('td')
+                    for celda in celdas:
+                        txt = await celda.inner_text()
+                        if any(c.isdigit() for c in txt) and "TOTAL" not in txt:
+                            gran_total = clean_float(txt)
+                    continue 
+
+                # 2. Si es una fila de PRODUCTO
+                # Filtros: No debe ser header ("descripción") y debe tener columnas suficientes
+                if "descripci" in texto_fila.lower() or "razón social" in texto_fila.lower():
+                    continue
+
+                celdas = await fila.query_selector_all('td')
+                
+                if len(celdas) >= 5:
+                    try:
+                        # Índices (Layout 7 columnas estándar)
+                        idx_desc = 2 if len(celdas) >= 7 else 1
+                        idx_und = 3 if len(celdas) >= 7 else 2
+                        idx_cant = 4 if len(celdas) >= 7 else 3
+                        idx_vunit = 5 if len(celdas) >= 7 else 4
+                        idx_vtotal = 6 if len(celdas) >= 7 else 5 # Total de la línea
+
+                        txt_desc = (await celdas[idx_desc].inner_text()).strip()
+                        txt_cant = (await celdas[idx_cant].inner_text()).strip()
+                        txt_vunit = (await celdas[idx_vunit].inner_text()).strip()
+                        
+                        # Capturar total de línea si existe columna
+                        txt_vtotal_linea = "0"
+                        if len(celdas) > idx_vtotal:
+                            txt_vtotal_linea = (await celdas[idx_vtotal].inner_text()).strip()
+
+                        # Validación: ¿Parece un producto?
+                        es_numero = re.search(r'\d', txt_cant)
+                        
+                        if len(txt_desc) > 2 and es_numero:
+                            # CREAMOS UN DICCIONARIO NUEVO PARA ESTE ÍTEM
+                            item = datos_base.copy() # Copia los datos del proveedor
+                            
+                            item['descripcion_producto'] = txt_desc
+                            item['unidad'] = (await celdas[idx_und].inner_text()).strip()
+                            item['cantidad'] = clean_float(txt_cant)
+                            item['valor_unitario'] = clean_float(txt_vunit)
+                            item['valor_total'] = clean_float(txt_vtotal_linea) # Total de ESTA línea
+                            
+                            lista_items.append(item)
+                    except:
+                        continue
 
             await browser.close()
             
-            if datos.get('razon_social') or datos.get('valor_total'):
-                return datos
-            return None
+            # Ajuste final: Si no encontramos ítems pero sí datos de proveedor, 
+            # devolvemos al menos un ítem genérico para que conste el proveedor.
+            if not lista_items and datos_base.get('razon_social'):
+                 datos_base['descripcion_producto'] = "Sin detalle de productos"
+                 datos_base['valor_total'] = gran_total
+                 lista_items.append(datos_base)
+
+            return lista_items
 
     except Exception as e:
         print(f"Error scraping {ruc}: {e}")
         if browser: await browser.close()
-        return None
+        return []
