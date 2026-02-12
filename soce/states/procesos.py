@@ -28,8 +28,8 @@ class ProcesosState(State):
     # Barrido seleccionado
     barrido_seleccionado_id: Optional[int] = None
     
-    # ID del proceso actual (para routing)
-    proceso_id: Optional[int] = None
+    # ID del proceso actual (renombrado para evitar conflicto)
+    current_proceso_id: Optional[int] = None
     
     def set_proceso_url_id(self, val: str):
         self.proceso_url_id = val
@@ -43,8 +43,8 @@ class ProcesosState(State):
     def set_nuevo_nombre_proceso(self, val: str):
         self.nuevo_nombre_proceso = val
     
-    def set_barrido_seleccionado(self, val: str):
-        self.barrido_seleccionado_id = int(val) if val else None
+    def set_barrido_seleccionado(self, barrido_id: int):  # <-- Cambiado a int directo
+        self.barrido_seleccionado_id = barrido_id
         self.cargar_ofertas_barrido()
 
     def load_categorias(self):
@@ -78,21 +78,27 @@ class ProcesosState(State):
         # Recargar lista
         self.load_procesos()
     
+    @rx.var
+    def proceso_id(self) -> int:
+        """Obtiene el proceso_id de los parámetros de la ruta"""
+        return self.router.page.params.get("proceso_id", 0)
+    
     def load_proceso_detalle(self):
         """Carga el detalle de un proceso específico"""
-        # El proceso_id viene de la URL mediante el router
-        if not self.proceso_id:
+        pid = self.proceso_id
+        
+        if not pid:
             return
         
         with rx.session() as session:
-            self.proceso_actual = session.get(Proceso, self.proceso_id)
+            self.proceso_actual = session.get(Proceso, pid)
             
             if self.proceso_actual:
                 self.proceso_url_id = self.proceso_actual.codigo_proceso
                 
                 # Cargar barridos de este proceso
                 self.barridos = session.exec(
-                    Barrido.select().where(Barrido.proceso_id == self.proceso_id)
+                    Barrido.select().where(Barrido.proceso_id == pid)
                 ).all()
         
         # Cargar categorías
@@ -100,12 +106,14 @@ class ProcesosState(State):
     
     def load_barridos(self):
         """Carga todos los barridos del proceso actual"""
-        if not self.proceso_id:
+        pid = self.proceso_id
+        
+        if not pid:
             return
         
         with rx.session() as session:
             self.barridos = session.exec(
-                Barrido.select().where(Barrido.proceso_id == self.proceso_id)
+                Barrido.select().where(Barrido.proceso_id == pid)
             ).all()
     
     def cargar_ofertas_barrido(self):
@@ -121,7 +129,9 @@ class ProcesosState(State):
 
     async def iniciar_scraping(self):
         """Inicia el proceso de scraping"""
-        if not self.proceso_id:
+        pid = self.proceso_id
+        
+        if not pid:
             self.scraping_progress = "❌ Error: No hay proceso seleccionado"
             return
             
@@ -136,7 +146,7 @@ class ProcesosState(State):
         # 1. Crear un nuevo Barrido
         with rx.session() as session:
             barrido = Barrido(
-                proceso_id=self.proceso_id,
+                proceso_id=pid,
                 categoria_id=int(self.categoria_id),
                 fecha_inicio=datetime.now(),
                 estado="en_proceso"

@@ -241,7 +241,7 @@ def proceso_detalle_view() -> rx.Component:
                         rx.table.cell(
                             rx.button(
                                 "Ver Ofertas",
-                                on_click=lambda bid=b.id: ProcesosState.set_barrido_seleccionado(bid.to_string()),
+                                on_click=ProcesosState.set_barrido_seleccionado(b.id),
                                 size="1",
                                 variant="soft",
                                 color_scheme=rx.cond(
@@ -249,7 +249,7 @@ def proceso_detalle_view() -> rx.Component:
                                     "grass",
                                     "gray"
                                 )
-                            )
+                            ),
                         ),
                     )
                 )
