@@ -21,7 +21,7 @@ class ProcesosState(State):
     ofertas_actuales: List[Oferta] = []
     anexos_actuales: List[Anexo] = []
 
-    # SETTERS EXPLÍCITOS (Evita AttributeError en Vistas)
+    # SETTERS MANUALES (Obligatorios para evitar errores de Reflex)
     def set_current_view(self, view: str): self.current_view = view
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
@@ -40,16 +40,10 @@ class ProcesosState(State):
             self.procesos = session.exec(select(Proceso).order_by(desc(Proceso.id))).all()
             self.categorias = session.exec(select(Categoria)).all()
 
-    # MÉTODO CRÍTICO: CREAR PROCESO
     def crear_proceso(self):
         if not self.nuevo_codigo_proceso or not self.categoria_id: return
         with rx.session() as session:
-            session.add(Proceso(
-                codigo_proceso=self.nuevo_codigo_proceso, 
-                nombre=self.nuevo_nombre_proceso, 
-                fecha_creacion=datetime.now(), 
-                categoria_id=int(self.categoria_id)
-            ))
+            session.add(Proceso(codigo_proceso=self.nuevo_codigo_proceso, nombre=self.nuevo_nombre_proceso, fecha_creacion=datetime.now(), categoria_id=int(self.categoria_id)))
             session.commit()
         self.load_procesos()
 
@@ -80,18 +74,22 @@ class ProcesosState(State):
                 session.refresh(barrido)
                 
                 provs = session.exec(select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))).all()
+                total = len(provs)
+
                 for i, p in enumerate(provs, 1):
-                    self.scraping_progress = f"({i}/{len(provs)}) Procesando: {p.ruc}"
+                    self.scraping_progress = f"({i}/{total}) Consultando RUC: {p.ruc}"
                     yield
                     res = await scrape_proceso(self.proceso_url_id, p.ruc)
                     if res:
+                        # Guardar productos
                         for it in res["items"]:
-                            desc_full = f"[{it['cpc']}] {it['cpc_descripcion']} - {it['descripcion']}"
+                            desc_full = f"[{it['cpc']}] {it['cpc_desc']} - {it['descripcion']}"
                             session.add(Oferta(
                                 barrido_id=barrido.id, ruc_proveedor=p.ruc, razon_social=res["razon_social"],
                                 numero_item=it["numero"], cpc=it["cpc"], descripcion_producto=desc_full,
                                 unidad=it["unidad"], cantidad=it["cantidad"], valor_unitario=it["v_unit"], valor_total=it["v_total"]
                             ))
+                        # Guardar archivos
                         for an in res["anexos"]:
                             session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
                     session.commit()

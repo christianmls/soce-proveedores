@@ -4,7 +4,7 @@ from ..states.procesos import ProcesosState
 def oferta_card(ruc: str):
     return rx.card(
         rx.vstack(
-            rx.heading(f"Proveedor RUC: {ruc}", size="4", color_scheme="grass"),
+            rx.heading(f"Proveedor: {ruc}", size="4"),
             rx.table.root(
                 rx.table.header(
                     rx.table.row(
@@ -25,22 +25,18 @@ def oferta_card(ruc: str):
                             )
                         )
                     )
-                ),
-                variant="surface", width="100%"
+                )
             ),
-            rx.vstack(
-                rx.text("Documentos Anexos:", weight="bold", size="2"),
-                rx.flex(
-                    rx.foreach(
-                        ProcesosState.anexos_actuales,
-                        lambda a: rx.cond(
-                            a.ruc_proveedor == ruc, 
-                            rx.link(rx.badge(rx.icon("download", size=14), a.nombre_archivo, color_scheme="blue", cursor="pointer"), href=a.url_archivo, is_external=True)
-                        )
-                    ),
-                    wrap="wrap"
+            rx.text("Documentos Anexos Detectados:", weight="bold", size="2"),
+            rx.hstack(
+                rx.foreach(
+                    ProcesosState.anexos_actuales,
+                    lambda a: rx.cond(
+                        a.ruc_proveedor == ruc, 
+                        rx.link(rx.badge(rx.icon("download", size=14), a.nombre_archivo, color_scheme="blue", cursor="pointer"), href=a.url_archivo, is_external=True)
+                    )
                 ),
-                align_items="start", spacing="1"
+                wrap="wrap", spacing="2"
             ),
             width="100%", spacing="3"
         ),
@@ -52,7 +48,7 @@ def proceso_detalle_view():
         rx.button("Volver", on_click=lambda: ProcesosState.set_current_view("procesos"), variant="ghost"),
         rx.card(
             rx.vstack(
-                rx.heading(f"Detalle Proceso: {ProcesosState.proceso_url_id}", size="5"),
+                rx.heading(f"Proceso: {ProcesosState.proceso_url_id}", size="5"),
                 rx.hstack(
                     rx.button(rx.cond(ProcesosState.is_scraping, rx.spinner(size="1"), "▶️ Iniciar Barrido"), 
                               on_click=ProcesosState.iniciar_scraping, disabled=ProcesosState.is_scraping, color_scheme="grass"),

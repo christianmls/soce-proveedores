@@ -3,38 +3,38 @@ import re
 from typing import List, Dict, Optional
 
 async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
-    """
-    Scraper optimizado para la proforma del SERCOP.
-    Captura ítems (9 columnas), Anexos y Total General.
-    """
     pid_clean = proceso_id.rstrip(',')
     url = f"https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOProformaRegistrada.cpe?id={pid_clean}&ruc={ruc}"
     
     print(f"--- DEBUG: Iniciando scrap para RUC {ruc} ---")
-    browser = None
     
     def clean_val(txt: str) -> float:
         if not txt: return 0.0
+        # Extrae solo números y punto decimal, ignorando "USD.", comas, etc.
         clean = re.sub(r'[^\d\.]', '', txt.replace(',', ''))
         try:
             return float(clean) if clean else 0.0
-        except:
-            return 0.0
+        except: return 0.0
 
+    browser = None
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True, args=['--no-sandbox'])
+            # Flags extra para estabilidad en Docker y evitar EPIPE
+            browser = await p.chromium.launch(
+                headless=True, 
+                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-setuid-sandbox']
+            )
             page = await browser.new_page()
-            await page.goto(url, wait_until='domcontentloaded', timeout=30000)
-            await page.wait_for_timeout(3500)
+            await page.goto(url, wait_until='domcontentloaded', timeout=40000)
+            await page.wait_for_timeout(4000)
             
-            # 1. CAPTURA DEL TOTAL GENERAL
-            total_general = 0.0
+            # 1. VALIDACIÓN DEL TOTAL (Si es 0, descartamos proforma)
+            total_gen = 0.0
             try:
-                # Buscamos la celda que sigue al texto 'TOTAL:'
                 total_text = await page.locator("td:has-text('TOTAL:') + td").inner_text()
-                total_general = clean_val(total_text)
-                if total_general <= 0:
+                total_gen = clean_val(total_text)
+                if total_gen <= 0:
+                    print(f"DEBUG: Total {total_gen} es cero. Saltando.")
                     await browser.close()
                     return None
             except:
@@ -46,23 +46,22 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             razon_match = re.search(r'Razón Social[:\s]+([^\n]+)', texto_completo)
             razon_social = razon_match.group(1).strip() if razon_match else "N/D"
 
-            # 3. EXTRACCIÓN DE ÍTEMS (Índices corregidos para 9 columnas)
+            # 3. EXTRACCIÓN DE ÍTEMS (Mapeo corregido por desfase de CPC)
             items = []
             rows = await page.query_selector_all("table tr")
             for row in rows:
                 cells = await row.query_selector_all("td")
-                # La tabla real tiene 8 o 9 celdas por el desfase de CPC y Moneda
-                if len(cells) >= 8:
+                if len(cells) >= 7:
                     txt_fila = await row.inner_text()
                     if "TOTAL" in txt_fila or "Descripción" in txt_fila or "No." in txt_fila:
                         continue
                     try:
-                        # Mapeo según estructura real del sitio:
-                        # 0:No | 1:CPC-Cod | 2:CPC-Desc | 3:Prod-Desc | 4:Unid | 5:Cant | 6:VUnit | 7:VTot
+                        # Web SERCOP 9 celdas: 0:No, 1:CPC_Cod, 2:CPC_Txt, 3:Prod_Desc, 4:Unid, 5:Cant, 6:VUnit, 7:VTot, 8:USD
+                        # Ajustamos índices para capturar Cantidad y V. Unitario correctamente
                         items.append({
                             "numero": (await cells[0].inner_text()).strip(),
                             "cpc": (await cells[1].inner_text()).strip(),
-                            "cpc_descripcion": (await cells[2].inner_text()).strip(),
+                            "cpc_desc": (await cells[2].inner_text()).strip(),
                             "descripcion": (await cells[3].inner_text()).strip(),
                             "unidad": (await cells[4].inner_text()).strip(),
                             "cantidad": clean_val(await cells[5].inner_text()),
@@ -71,32 +70,21 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         })
                     except: continue
 
-            # 4. SCRAPPING DE ARCHIVOS ANEXOS
+            # 4. EXTRACCIÓN DE ANEXOS (Detección de iconos de disquete)
             anexos = []
-            # Buscamos en la sección de anexos específicamente
-            iconos_anexos = await page.query_selector_all("input[type='image'], img[src*='descargar']")
-            for icono in iconos_anexos:
-                try:
-                    # Obtenemos la fila que contiene el icono
-                    fila_anexo = await icono.evaluate_handle("el => el.closest('tr')")
-                    celdas_anexo = await fila_anexo.query_selector_all("td")
-                    if celdas_anexo:
-                        nombre_doc = (await celdas_anexo[0].inner_text()).strip()
-                        # Si no tiene nombre claro, es un header o basura
-                        if nombre_doc and "Descripción" not in nombre_doc:
-                            anexos.append({
-                                "nombre": nombre_doc,
-                                "url": url # Usamos la URL base como referencia de descarga
-                            })
-                except: continue
+            anexo_rows = await page.query_selector_all("tr:has(input[type='image'])")
+            for a_row in anexo_rows:
+                a_cells = await a_row.query_selector_all("td")
+                btn = await a_row.query_selector("input[type='image']")
+                if len(a_cells) >= 1 and btn:
+                    nombre_doc = (await a_cells[0].inner_text()).strip()
+                    # Si no tiene nombre claro, es basura
+                    if nombre_doc and "Archivo" not in nombre_doc:
+                        anexos.append({"nombre": nombre_doc, "url": url})
 
+            print(f"DEBUG: Finalizado {ruc} | Items: {len(items)} | Anexos: {len(anexos)}")
             await browser.close()
-            return {
-                "razon_social": razon_social, 
-                "total_general": total_general,
-                "items": items, 
-                "anexos": anexos
-            }
+            return {"razon_social": razon_social, "items": items, "anexos": anexos}
     except Exception as e:
         print(f"DEBUG ERROR SCRAPER: {e}")
         if browser: await browser.close()
