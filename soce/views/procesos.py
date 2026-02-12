@@ -72,13 +72,21 @@ def procesos_view() -> rx.Component:
                         rx.table.cell(p.id.to_string()),
                         rx.table.cell(
                             rx.text(
-                                p.codigo_proceso[:30] + "..." if len(p.codigo_proceso) > 30 else p.codigo_proceso,
+                                # SOLUCIÓN: Usamos rx.cond y métodos de Var
+                                rx.cond(
+                                    p.codigo_proceso.length() > 30,
+                                    p.codigo_proceso.slice(0, 30) + "...",
+                                    p.codigo_proceso
+                                ),
                                 font_family="monospace"
                             )
                         ),
-                        rx.table.cell(p.nombre if p.nombre else "-"),
+                        # SOLUCIÓN: Para el nombre usamos rx.cond también
+                        rx.table.cell(
+                            rx.cond(p.nombre, p.nombre, "-")
+                        ),
                         rx.table.cell(p.fecha_creacion.to_string()),
-                        rx.table.cell("-"),  # TODO: Contar barridos
+                        rx.table.cell("-"),
                         rx.table.cell(
                             rx.hstack(
                                 rx.link(
@@ -89,6 +97,7 @@ def procesos_view() -> rx.Component:
                                         variant="soft",
                                         color_scheme="blue"
                                     ),
+                                    # Asegúrate de que p.id coincida con tu ruta dinámica
                                     href=f"/proceso/{p.id}"
                                 ),
                                 spacing="2"
