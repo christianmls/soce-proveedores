@@ -6,14 +6,14 @@ def oferta_row(oferta, ruc: str):
     return rx.cond(
         oferta.ruc_proveedor == ruc,
         rx.table.row(
-            rx.table.cell(oferta.numero_item),
+            rx.table.cell(oferta.numero_item, width="60px"),
             rx.table.cell(
-                rx.text(oferta.descripcion_producto, size="2"),
-                max_width="600px"
+                rx.text(oferta.descripcion_producto, size="2")
             ),
             rx.table.cell(
                 rx.text(f"{oferta.valor_total:,.5f}", align="right"),
-                text_align="right"
+                text_align="right",
+                width="150px"
             )
         ),
         rx.fragment()
@@ -30,7 +30,7 @@ def anexo_badge(anexo, ruc: str):
                 anexo.nombre_archivo,
                 variant="soft",
                 color_scheme="blue",
-                size="1"
+                size="2"
             ),
             href=anexo.url_archivo,
             is_external=True
@@ -40,7 +40,6 @@ def anexo_badge(anexo, ruc: str):
 
 def total_row_for_ruc(ruc: str):
     """Muestra el total para un RUC específico"""
-    # Obtener el total del diccionario computado
     total = ProcesosState.totales_por_ruc.get(ruc, 0.0)
     
     return rx.table.row(
@@ -51,9 +50,9 @@ def total_row_for_ruc(ruc: str):
         ),
         rx.table.cell(
             rx.hstack(
-                rx.text(f"{total:,.5f}", weight="bold"),
+                rx.text(f"{total:,.5f}", weight="bold", size="3"),
                 rx.text("USD.", weight="bold"),
-                spacing="1",
+                spacing="2",
                 justify="end"
             ),
             text_align="right"
@@ -72,9 +71,9 @@ def oferta_card(ruc: str):
             rx.table.root(
                 rx.table.header(
                     rx.table.row(
-                        rx.table.column_header_cell("No.", width="60px"),
+                        rx.table.column_header_cell("No."),
                         rx.table.column_header_cell("Descripción"),
-                        rx.table.column_header_cell("Total", width="150px", text_align="right")
+                        rx.table.column_header_cell("Total", text_align="right")
                     )
                 ),
                 rx.table.body(
@@ -82,7 +81,6 @@ def oferta_card(ruc: str):
                         ProcesosState.ofertas_actuales,
                         lambda o: oferta_row(o, ruc)
                     ),
-                    # Fila de total (se mostrará para cada proveedor)
                     total_row_for_ruc(ruc)
                 ),
                 width="100%",
@@ -94,7 +92,7 @@ def oferta_card(ruc: str):
             rx.cond(
                 ProcesosState.anexos_actuales.length() > 0,
                 rx.vstack(
-                    rx.text("Documentos Anexos:", weight="bold", size="2", margin_top="3"),
+                    rx.text("Documentos Anexos:", weight="bold", size="2", margin_top="4"),
                     rx.flex(
                         rx.foreach(
                             ProcesosState.anexos_actuales,
@@ -109,7 +107,7 @@ def oferta_card(ruc: str):
                 rx.fragment()
             ),
             
-            spacing="3",
+            spacing="4",
             width="100%"
         ),
         width="100%",
@@ -130,7 +128,8 @@ def proceso_detalle_view():
                     size="2"
                 ),
                 rx.spacer(),
-                width="100%"
+                width="100%",
+                margin_bottom="4"
             ),
             
             # Panel de control
@@ -153,7 +152,7 @@ def proceso_detalle_view():
                         on_click=ProcesosState.iniciar_scraping,
                         disabled=ProcesosState.is_scraping,
                         color_scheme="grass",
-                        size="2"
+                        size="3"
                     ),
                     rx.text(
                         ProcesosState.scraping_progress,
@@ -164,8 +163,7 @@ def proceso_detalle_view():
                     justify="between",
                     align_items="center"
                 ),
-                width="100%",
-                margin_bottom="4"
+                width="100%"
             ),
             
             # Mensaje cuando no hay datos
@@ -176,11 +174,12 @@ def proceso_detalle_view():
                         rx.icon("inbox", size=48, color="gray"),
                         rx.text("No hay ofertas disponibles", size="4", weight="bold"),
                         rx.text("Inicia un barrido para ver resultados", size="2", color="gray"),
-                        spacing="2",
+                        spacing="3",
                         align_items="center",
-                        padding="6"
+                        padding="8"
                     ),
-                    width="100%"
+                    width="100%",
+                    margin_top="6"
                 ),
                 # Lista de ofertas
                 rx.vstack(
@@ -189,15 +188,14 @@ def proceso_detalle_view():
                         oferta_card
                     ),
                     width="100%",
-                    spacing="3"
+                    spacing="4",
+                    margin_top="6"
                 )
             ),
             
-            spacing="4",
+            spacing="6",
             width="100%"
         ),
-        width="100%",
-        height="100%",
-        overflow_y="auto",
-        padding="4"
+        padding="32px",
+        width="100%"
     )

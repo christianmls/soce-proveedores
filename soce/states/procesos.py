@@ -54,7 +54,7 @@ class ProcesosState(State):
             if oferta.ruc_proveedor not in totales:
                 totales[oferta.ruc_proveedor] = 0.0
             totales[oferta.ruc_proveedor] += oferta.valor_total
-        return totales    
+        return totales
 
     def load_procesos(self):
         with rx.session() as session:
