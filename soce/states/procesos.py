@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlmodel import select, desc
 # IMPORTANTE: Ajusta esta línea según dónde guardaste scraper.py
 # Si está en la carpeta soce junto a soce.py:
-from ..scraper import scrape_proceso 
+from ..utils.scraper import scrape_proceso 
 # Si está en una carpeta utils: from ..utils.scraper import scrape_proceso
 
 class ProcesosState(State):
