@@ -21,7 +21,28 @@ class Proveedor(rx.Model, table=True):
     )
 
 class Proceso(rx.Model, table=True):
-    proceso_id: str
+    """Proceso de contratación pública"""
+    codigo_proceso: str  # ID del proceso (ej: xrMof7bBhVx...)
+    nombre: Optional[str] = ""
+    objeto: Optional[str] = ""
+    entidad: Optional[str] = ""
+    fecha_creacion: Optional[datetime] = None
+
+class Barrido(rx.Model, table=True):
+    """Cada ejecución de scraping sobre un proceso"""
+    proceso_id: int = Field(foreign_key="proceso.id")
+    categoria_id: int = Field(foreign_key="categoria.id")
+    fecha_inicio: Optional[datetime] = None
+    fecha_fin: Optional[datetime] = None
+    estado: str = "en_proceso"  # en_proceso, completado, error
+    total_proveedores: int = 0
+    exitosos: int = 0
+    sin_datos: int = 0
+    errores: int = 0
+
+class Oferta(rx.Model, table=True):
+    """Oferta de un proveedor en un barrido específico"""
+    barrido_id: int = Field(foreign_key="barrido.id")
     ruc_proveedor: str
     
     # Datos del proveedor
@@ -41,9 +62,7 @@ class Proceso(rx.Model, table=True):
     valor_total: Optional[float] = 0.0
     
     # Metadatos
-    fecha_barrido: Optional[datetime] = None
-    estado: str = "pendiente"
+    fecha_scraping: Optional[datetime] = None
+    estado: str = "pendiente"  # procesado, sin_datos, error
     tiene_archivos: bool = False
-    
-    # JSON con todos los datos
     datos_completos_json: Optional[str] = ""

@@ -1,6 +1,6 @@
 import reflex as rx
 from typing import Optional
-from ..models import Proceso, Proveedor, Categoria
+from ..models import Proceso, Barrido, Oferta, Proveedor, Categoria
 from ..state import State
 import asyncio
 from datetime import datetime
@@ -17,12 +17,21 @@ class ProcesosState(State):
     # Datos
     categorias: list[Categoria] = []
     procesos: list[Proceso] = []
+    barridos: list[Barrido] = []
+    ofertas_actuales: list[Oferta] = []  # Ofertas del último barrido
+    
+    # Barrido seleccionado
+    barrido_seleccionado_id: Optional[int] = None
     
     def set_proceso_url_id(self, val: str):
         self.proceso_url_id = val
     
     def set_categoria_id(self, val: str):
         self.categoria_id = val
+    
+    def set_barrido_seleccionado(self, val: str):
+        self.barrido_seleccionado_id = int(val) if val else None
+        self.cargar_ofertas_barrido()
 
     def load_categorias(self):
         """Carga todas las categorías disponibles"""
@@ -31,9 +40,25 @@ class ProcesosState(State):
         self.scraping_progress = "Listo para iniciar"
 
     def load_procesos(self):
-        """Carga los procesos guardados"""
+        """Carga todos los procesos"""
         with rx.session() as session:
             self.procesos = session.exec(Proceso.select()).all()
+    
+    def load_barridos(self):
+        """Carga todos los barridos"""
+        with rx.session() as session:
+            self.barridos = session.exec(Barrido.select()).all()
+    
+    def cargar_ofertas_barrido(self):
+        """Carga las ofertas del barrido seleccionado"""
+        if not self.barrido_seleccionado_id:
+            self.ofertas_actuales = []
+            return
+        
+        with rx.session() as session:
+            self.ofertas_actuales = session.exec(
+                Oferta.select().where(Oferta.barrido_id == self.barrido_seleccionado_id)
+            ).all()
 
     async def iniciar_scraping(self):
         """Inicia el proceso de scraping"""
@@ -49,7 +74,37 @@ class ProcesosState(State):
         self.scraping_progress = "🔄 Iniciando scraping..."
         yield
         
-        # Obtener proveedores de la categoría seleccionada
+        # 1. Crear o buscar el Proceso
+        with rx.session() as session:
+            proceso = session.exec(
+                Proceso.select().where(Proceso.codigo_proceso == self.proceso_url_id)
+            ).first()
+            
+            if not proceso:
+                proceso = Proceso(
+                    codigo_proceso=self.proceso_url_id,
+                    fecha_creacion=datetime.now()
+                )
+                session.add(proceso)
+                session.commit()
+                session.refresh(proceso)
+            
+            proceso_id = proceso.id
+        
+        # 2. Crear un nuevo Barrido
+        with rx.session() as session:
+            barrido = Barrido(
+                proceso_id=proceso_id,
+                categoria_id=int(self.categoria_id),
+                fecha_inicio=datetime.now(),
+                estado="en_proceso"
+            )
+            session.add(barrido)
+            session.commit()
+            session.refresh(barrido)
+            barrido_id = barrido.id
+        
+        # 3. Obtener proveedores de la categoría
         with rx.session() as session:
             proveedores = session.exec(
                 Proveedor.select().where(
@@ -59,6 +114,11 @@ class ProcesosState(State):
         
         if not proveedores:
             self.scraping_progress = "⚠️ No hay proveedores en la categoría seleccionada"
+            with rx.session() as session:
+                barrido = session.get(Barrido, barrido_id)
+                barrido.estado = "completado"
+                barrido.fecha_fin = datetime.now()
+                session.commit()
             self.is_scraping = False
             yield
             return
@@ -66,10 +126,16 @@ class ProcesosState(State):
         self.scraping_progress = f"📋 Encontrados {len(proveedores)} proveedores. Iniciando barrido..."
         yield
         
-        # Importar función de scraping
+        # 4. Actualizar total de proveedores en el barrido
+        with rx.session() as session:
+            barrido = session.get(Barrido, barrido_id)
+            barrido.total_proveedores = len(proveedores)
+            session.commit()
+        
+        # 5. Importar función de scraping
         from ..utils.scraper import scrape_proceso
         
-        # Procesar cada proveedor
+        # 6. Procesar cada proveedor
         total = len(proveedores)
         exitosos = 0
         sin_datos = 0
@@ -84,10 +150,10 @@ class ProcesosState(State):
                 datos = await scrape_proceso(self.proceso_url_id, proveedor.ruc)
                 
                 if datos:
-                    # Guardar en la base de datos con todos los campos
+                    # Guardar oferta con datos
                     with rx.session() as session:
-                        proceso = Proceso(
-                            proceso_id=self.proceso_url_id,
+                        oferta = Oferta(
+                            barrido_id=barrido_id,
                             ruc_proveedor=proveedor.ruc,
                             
                             # Datos del proveedor
@@ -107,27 +173,27 @@ class ProcesosState(State):
                             valor_total=datos.get('valor_total', 0.0),
                             
                             # Metadatos
-                            fecha_barrido=datetime.now(),
+                            fecha_scraping=datetime.now(),
                             estado="procesado",
                             tiene_archivos=datos.get('tiene_archivos', False),
                             datos_completos_json=str(datos)
                         )
-                        session.add(proceso)
+                        session.add(oferta)
                         session.commit()
                     
                     exitosos += 1
                     self.scraping_progress = f"✅ {idx}/{total}: Datos completos para {datos.get('razon_social', proveedor.ruc)}"
                 else:
-                    # Marcar como sin datos
+                    # Guardar oferta sin datos
                     with rx.session() as session:
-                        proceso = Proceso(
-                            proceso_id=self.proceso_url_id,
+                        oferta = Oferta(
+                            barrido_id=barrido_id,
                             ruc_proveedor=proveedor.ruc,
                             razon_social=proveedor.nombre or "",
-                            fecha_barrido=datetime.now(),
+                            fecha_scraping=datetime.now(),
                             estado="sin_datos"
                         )
-                        session.add(proceso)
+                        session.add(oferta)
                         session.commit()
                     
                     sin_datos += 1
@@ -136,28 +202,40 @@ class ProcesosState(State):
                 yield
                         
             except Exception as e:
-                # Guardar error
+                # Guardar oferta con error
                 with rx.session() as session:
-                    proceso = Proceso(
-                        proceso_id=self.proceso_url_id,
+                    oferta = Oferta(
+                        barrido_id=barrido_id,
                         ruc_proveedor=proveedor.ruc,
                         razon_social=proveedor.nombre or "",
-                        fecha_barrido=datetime.now(),
+                        fecha_scraping=datetime.now(),
                         estado="error",
                         datos_completos_json=str(e)
                     )
-                    session.add(proceso)
+                    session.add(oferta)
                     session.commit()
                 
                 errores += 1
-                self.scraping_progress = f"❌ {idx}/{total}: Error en {proveedor.ruc} - {str(e)}"
+                self.scraping_progress = f"❌ {idx}/{total}: Error en {proveedor.ruc}"
                 yield
             
-            # Pequeña pausa entre requests para no sobrecargar el servidor
+            # Pausa entre requests
             await asyncio.sleep(2)
         
-        # Resumen final
+        # 7. Finalizar barrido
+        with rx.session() as session:
+            barrido = session.get(Barrido, barrido_id)
+            barrido.estado = "completado"
+            barrido.fecha_fin = datetime.now()
+            barrido.exitosos = exitosos
+            barrido.sin_datos = sin_datos
+            barrido.errores = errores
+            session.commit()
+        
+        # 8. Resumen final
         self.scraping_progress = f"✅ Completado! Exitosos: {exitosos} | Sin datos: {sin_datos} | Errores: {errores}"
         self.is_scraping = False
-        self.load_procesos()
+        self.load_barridos()
+        self.barrido_seleccionado_id = barrido_id
+        self.cargar_ofertas_barrido()
         yield
