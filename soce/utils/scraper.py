@@ -23,25 +23,24 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             await page.goto(url, wait_until='domcontentloaded', timeout=45000)
             await page.wait_for_timeout(4000)
             
-            # 1. CAPTURA DEL TOTAL (Independiente del tbody)
-            total_proforma = 0.0
+            # 1. CAPTURA DEL TOTAL (Ubicado en el segundo tbody)
+            total_general = 0.0
             try:
-                # Buscamos la fila que tiene el texto "TOTAL:"
+                # Buscamos la fila que contiene el texto TOTAL:
                 fila_total = page.locator("tr:has-text('TOTAL:')")
-                # El valor está en la última celda td de esa fila
-                texto_total = await fila_total.locator("td").last.inner_text()
-                total_proforma = clean_val(texto_total)
-            except Exception as e:
-                print(f"Error capturando total: {e}")
+                # El valor está en la celda anterior al texto "USD."
+                texto_total = await fila_total.locator("td").nth(-2).inner_text()
+                total_general = clean_val(texto_total)
+            except: pass
 
-            # 2. PRODUCTOS (Mapeo de 9 columnas)
+            # 2. PRODUCTOS (Primer tbody - Estructura de 9 columnas)
             items = []
             rows = await page.query_selector_all("table tr")
             for row in rows:
                 cells = await row.query_selector_all("td")
                 if len(cells) >= 8:
-                    txt = await row.inner_text()
-                    if "TOTAL" in txt or "Descripción" in txt or "No." in txt: continue
+                    txt_f = await row.inner_text()
+                    if "TOTAL" in txt_f or "Descripción" in txt_f or "No." in txt_f: continue
                     try:
                         items.append({
                             "numero": (await cells[0].inner_text()).strip(),
@@ -54,7 +53,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         })
                     except: continue
 
-            # 3. ANEXOS (Selectores de imagen)
+            # 3. ANEXOS (Botones de descarga)
             anexos = []
             anexo_btns = await page.query_selector_all("input[type='image']")
             for btn in anexo_btns:
@@ -68,7 +67,8 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                 except: continue
 
             await browser.close()
-            return {"total": total_proforma, "items": items, "anexos": anexos}
+            if not items and total_general <= 0: return None
+            return {"total": total_general, "items": items, "anexos": anexos}
     except:
         if browser: await browser.close()
         return None

@@ -12,7 +12,7 @@ class ProcesosState(State):
     proceso_url_id: str = "" 
     nuevo_codigo_proceso: str = ""
     nuevo_nombre_proceso: str = ""
-    categoria_id: str = "" 
+    categoria_id: str = "" #
     is_scraping: bool = False
     scraping_progress: str = ""
     
@@ -21,6 +21,7 @@ class ProcesosState(State):
     ofertas_actuales: List[Oferta] = []
     anexos_actuales: List[Anexo] = []
 
+    # Setters explícitos
     def set_current_view(self, val: str): self.current_view = val
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
@@ -39,17 +40,13 @@ class ProcesosState(State):
             self.procesos = session.exec(select(Proceso).order_by(desc(Proceso.id))).all()
             self.categorias = session.exec(select(Categoria)).all()
 
-    def load_proceso_detalle(self):
+    # MÉTODO REVISADO
+    def crear_proceso(self):
+        if not self.nuevo_codigo_proceso or not self.categoria_id: return
         with rx.session() as session:
-            proc = session.get(Proceso, self.proceso_id)
-            if proc:
-                self.proceso_url_id = proc.codigo_proceso
-                # CRÍTICO: Cargar categoria_id para evitar ValueError
-                self.categoria_id = str(proc.categoria_id)
-                ultimo_b = session.exec(select(Barrido).where(Barrido.proceso_id == self.proceso_id).order_by(desc(Barrido.id))).first()
-                if ultimo_b:
-                    self.ofertas_actuales = session.exec(select(Oferta).where(Oferta.barrido_id == ultimo_b.id)).all()
-                    self.anexos_actuales = session.exec(select(Anexo).where(Anexo.barrido_id == ultimo_b.id)).all()
+            session.add(Proceso(codigo_proceso=self.nuevo_codigo_proceso, nombre=self.nuevo_nombre_proceso, fecha_creacion=datetime.now(), categoria_id=int(self.categoria_id)))
+            session.commit()
+        self.load_procesos()
 
     def eliminar_proceso(self, p_id: str):
         with rx.session() as session:
@@ -63,15 +60,25 @@ class ProcesosState(State):
             session.commit()
         self.load_procesos()
 
+    # MÉTODO REVISADO
     def ir_a_detalle(self, p_id: str):
         self.proceso_id = int(p_id)
-        self.load_proceso_detalle()
+        with rx.session() as session:
+            proc = session.get(Proceso, self.proceso_id)
+            if proc:
+                self.proceso_url_id = proc.codigo_proceso
+                self.categoria_id = str(proc.categoria_id) # Sincroniza categoría
+                ultimo_b = session.exec(select(Barrido).where(Barrido.proceso_id == self.proceso_id).order_by(desc(Barrido.id))).first()
+                if ultimo_b:
+                    self.ofertas_actuales = session.exec(select(Oferta).where(Oferta.barrido_id == ultimo_b.id)).all()
+                    self.anexos_actuales = session.exec(select(Anexo).where(Anexo.barrido_id == ultimo_b.id)).all()
         self.current_view = "detalle_proceso"
 
     async def iniciar_scraping(self):
-        # Validación preventiva contra campos vacíos
+        # Evita ValueError: invalid literal for int()
         if not self.categoria_id:
-            self.load_proceso_detalle()
+            self.scraping_progress = "Error: Falta Categoría."
+            return
 
         self.is_scraping = True
         yield
@@ -82,25 +89,25 @@ class ProcesosState(State):
                 session.commit()
                 session.refresh(barrido)
                 
-                # Conversión segura
                 id_cat = int(self.categoria_id)
                 provs = session.exec(select(Proveedor).where(Proveedor.categoria_id == id_cat)).all()
-                
+                total_p = len(provs)
+
                 for i, p in enumerate(provs, 1):
-                    self.scraping_progress = f"({i}/{len(provs)}) Procesando: {p.ruc}"
+                    self.scraping_progress = f"({i}/{total_p}) Procesando RUC: {p.ruc}"
                     yield
                     res = await scrape_proceso(self.proceso_url_id, p.ruc)
                     if res:
                         for it in res["items"]:
                             session.add(Oferta(
-                                barrido_id=barrido.id, ruc_proveedor=p.ruc, razon_social="N/D", 
-                                numero_item=it["numero"], cpc=it["cpc"], descripcion_producto=it["desc"], 
-                                unidad=it["unid"], cantidad=it["cant"], valor_unitario=it["v_unit"], valor_total=it["v_tot"]
+                                barrido_id=barrido.id, ruc_proveedor=p.ruc, numero_item=it["numero"], 
+                                cpc=it["cpc"], descripcion_producto=it["desc"], unidad=it["unid"], 
+                                cantidad=it["cant"], valor_unitario=it["v_unit"], valor_total=it["v_tot"]
                             ))
                         for an in res["anexos"]:
                             session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
                     session.commit()
-            self.load_proceso_detalle()
+            self.ir_a_detalle(str(self.proceso_id))
             self.scraping_progress = "Finalizado"
         finally:
             self.is_scraping = False

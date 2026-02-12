@@ -28,7 +28,7 @@ def procesos_view():
                     rx.button(rx.icon("trash-2"), on_click=lambda: ProcesosState.eliminar_proceso(p["id"]), size="1", color_scheme="red")
                 ))
             ))),
-            width="100%" # Ocupa todo el espacio horizontal
+            width="100%"
         ),
         on_mount=ProcesosState.load_procesos, width="100%", spacing="5"
     )
