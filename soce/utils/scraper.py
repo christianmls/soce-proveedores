@@ -97,65 +97,107 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             
             producto_encontrado = False
             for tabla in tablas:
-                texto_tabla = await tabla.inner_text()
-                
-                # Verificar si es la tabla de productos
-                if 'descripci' in texto_tabla.lower() and ('producto' in texto_tabla.lower() or 'valor' in texto_tabla.lower()):
+                try:
+                    # Obtener todas las filas
                     filas = await tabla.query_selector_all('tr')
                     
-                    # Buscar la fila con datos (generalmente la segunda fila)
-                    for idx, fila in enumerate(filas):
-                        if idx == 0:  # Saltar header
+                    if len(filas) < 2:
+                        continue
+                    
+                    # Revisar el header para confirmar que es la tabla correcta
+                    header_row = filas[0]
+                    header_text = await header_row.inner_text()
+                    
+                    # Debe contener columnas de producto
+                    if not ('descripci' in header_text.lower() and ('cantidad' in header_text.lower() or 'valor' in header_text.lower())):
+                        continue
+                    
+                    print(f"Tabla de productos encontrada, procesando {len(filas)} filas...")
+                    
+                    # Procesar filas de datos (saltar header y fila de total)
+                    for idx, fila in enumerate(filas[1:]):
+                        fila_texto = await fila.inner_text()
+                        
+                        # Saltar fila si es el total
+                        if 'total' in fila_texto.lower() and 'descripci' not in fila_texto.lower():
+                            # Extraer el total de esta fila
+                            total_match = re.search(r'([\d.,]+)\s*USD', fila_texto, re.IGNORECASE)
+                            if total_match:
+                                valor_str = total_match.group(1).replace('.', '').replace(',', '.')
+                                try:
+                                    datos['valor_total'] = float(valor_str)
+                                    print(f"Total encontrado en tabla: {datos['valor_total']}")
+                                except:
+                                    pass
                             continue
-                            
+                        
                         celdas = await fila.query_selector_all('td')
                         
-                        # Debe tener al menos 5 columnas: descripción, unidad, cantidad, valor unitario, valor total
+                        # Debe tener al menos 5 columnas
                         if len(celdas) >= 5:
                             try:
-                                # Descripción del producto
-                                desc_texto = await celdas[0].inner_text()
-                                if desc_texto and len(desc_texto.strip()) > 10 and 'total' not in desc_texto.lower():
-                                    datos['descripcion_producto'] = desc_texto.strip()
+                                # Descripción (columna 0)
+                                desc_texto = (await celdas[0].inner_text()).strip()
+                                
+                                # Verificar que no sea una fila vacía o de encabezado
+                                if desc_texto and len(desc_texto) > 10 and not desc_texto.lower().startswith('descripci'):
+                                    datos['descripcion_producto'] = desc_texto
                                     
-                                    # Unidad
+                                    # Unidad (columna 1)
                                     datos['unidad'] = (await celdas[1].inner_text()).strip()
                                     
-                                    # Cantidad
+                                    # Cantidad (columna 2)
                                     cantidad_texto = (await celdas[2].inner_text()).strip()
                                     try:
                                         datos['cantidad'] = float(cantidad_texto.replace(',', '.'))
                                     except:
                                         datos['cantidad'] = 0.0
                                     
-                                    # Valor Unitario
-                                    valor_unit_texto = (await celdas[3].inner_text()).replace('USD', '').replace('.', '').replace(',', '.').strip()
+                                    # Valor Unitario (columna 3)
+                                    valor_unit_texto = (await celdas[3].inner_text()).strip()
+                                    # Limpiar: remover USD, puntos de miles, convertir coma decimal a punto
+                                    valor_unit_limpio = valor_unit_texto.replace('USD', '').replace('.', '').replace(',', '.').strip()
                                     try:
-                                        datos['valor_unitario'] = float(valor_unit_texto)
+                                        datos['valor_unitario'] = float(valor_unit_limpio)
                                     except:
                                         datos['valor_unitario'] = 0.0
                                     
-                                    # Valor Total
-                                    valor_total_texto = (await celdas[4].inner_text()).replace('USD', '').replace('.', '').replace(',', '.').strip()
+                                    # Valor Total por línea (columna 4)
+                                    valor_total_linea = (await celdas[4].inner_text()).strip()
+                                    valor_total_limpio = valor_total_linea.replace('USD', '').replace('.', '').replace(',', '.').strip()
                                     try:
-                                        datos['valor_total'] = float(valor_total_texto)
+                                        valor_total_linea_float = float(valor_total_limpio)
+                                        # Si no hemos encontrado el total general, usar este
+                                        if 'valor_total' not in datos:
+                                            datos['valor_total'] = valor_total_linea_float
                                     except:
-                                        datos['valor_total'] = 0.0
+                                        pass
                                     
                                     producto_encontrado = True
-                                    break
+                                    print(f"Producto extraído: {datos['descripcion_producto'][:50]}...")
+                                    print(f"  - Unidad: {datos['unidad']}")
+                                    print(f"  - Cantidad: {datos['cantidad']}")
+                                    print(f"  - Valor Unitario: {datos['valor_unitario']}")
+                                    print(f"  - Valor Total: {datos.get('valor_total', 0)}")
+                                    break  # Tomamos solo el primer producto
+                                    
                             except Exception as e:
                                 print(f"Error extrayendo fila de producto: {e}")
                                 continue
                     
                     if producto_encontrado:
                         break
+                        
+                except Exception as e:
+                    print(f"Error procesando tabla: {e}")
+                    continue
             
-            # Si no encontramos producto en tabla, intentar con regex
-            if not producto_encontrado:
-                # Buscar valor total con regex
+            # Si no encontramos el valor total en la tabla de productos, buscarlo al final
+            if 'valor_total' not in datos:
+                # Buscar en toda la página el TOTAL final
                 total_patterns = [
-                    r'TOTAL[:\s]+(?:USD\.?)?[\s]*([\d.,]+)',
+                    r'TOTAL[:\s]+(?:USD\.?)?[\s]*([\d.,]+)\s*USD',
+                    r'TOTAL[:\s]+([\d.,]+)',
                     r'Valor Total[:\s]+(?:USD\.?)?[\s]*([\d.,]+)',
                 ]
                 for pattern in total_patterns:
@@ -164,9 +206,10 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                         valor_str = total_match.group(1).replace('.', '').replace(',', '.')
                         try:
                             datos['valor_total'] = float(valor_str)
+                            print(f"Total encontrado con regex: {datos['valor_total']}")
+                            break
                         except:
                             pass
-                        break
             
             # ===== DETECTAR ARCHIVOS =====
             # Buscar texto que indique archivos adjuntos
@@ -175,8 +218,8 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             
             await browser.close()
             
-            # Debug: imprimir datos extraídos
-            print(f"Datos extraídos para {ruc}: {datos}")
+            # Debug: imprimir datos extraídos completos
+            print(f"Datos completos extraídos para {ruc}: {datos}")
             
             # Solo retornar si encontramos datos mínimos
             if datos.get('razon_social') or datos.get('descripcion_producto') or datos.get('valor_total'):
