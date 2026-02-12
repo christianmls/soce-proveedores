@@ -1,6 +1,6 @@
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+from playwright.async_api import async_playwright
 import re
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 
 async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
     pid_clean = proceso_id.rstrip(',')
@@ -30,7 +30,7 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                 await browser.close()
                 return None
 
-            # 2. PRODUCTOS (Compensando desfase de 9 columnas)
+            # 2. PRODUCTOS (Indices para compensar desfase de CPC)
             items = []
             rows = await page.query_selector_all("table tr")
             for row in rows:

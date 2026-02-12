@@ -68,6 +68,11 @@ class ProcesosState(State):
                     self.ofertas_actuales = session.exec(select(Oferta).where(Oferta.barrido_id == ultimo_b.id)).all()
                     self.anexos_actuales = session.exec(select(Anexo).where(Anexo.barrido_id == ultimo_b.id)).all()
 
+    def ir_a_detalle(self, p_id: str):
+        self.proceso_id = int(p_id)
+        self.load_proceso_detalle()
+        self.set_current_view("detalle_proceso")
+
     async def iniciar_scraping(self):
         self.is_scraping = True
         yield
@@ -77,7 +82,6 @@ class ProcesosState(State):
                 session.add(barrido)
                 session.commit()
                 session.refresh(barrido)
-                
                 provs = session.exec(select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))).all()
                 for i, p in enumerate(provs, 1):
                     self.scraping_progress = f"({i}/{len(provs)}) Procesando: {p.ruc}"
@@ -96,4 +100,4 @@ class ProcesosState(State):
             self.load_proceso_detalle()
             self.scraping_progress = "Finalizado"
         finally:
-            self.is_scraping = False # LIBERA EL BLOQUEO SIEMPRE
+            self.is_scraping = False
