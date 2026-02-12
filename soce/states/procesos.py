@@ -2,7 +2,7 @@ import reflex as rx
 from typing import List, Dict, Any, Optional
 from ..models import Proceso, Barrido, Oferta, Anexo, Proveedor, Categoria
 from ..state import State
-from sqlmodel import select, desc
+from sqlmodel import select, desc, delete
 from datetime import datetime
 from ..utils.scraper import scrape_proceso
 
@@ -21,7 +21,6 @@ class ProcesosState(State):
     ofertas_actuales: List[Oferta] = []
     anexos_actuales: List[Anexo] = []
 
-    # SETTERS MANUALES (Obligatorios para evitar errores de Reflex)
     def set_current_view(self, view: str): self.current_view = view
     def set_nuevo_codigo_proceso(self, val: str): self.nuevo_codigo_proceso = val
     def set_nuevo_nombre_proceso(self, val: str): self.nuevo_nombre_proceso = val
@@ -47,12 +46,27 @@ class ProcesosState(State):
             session.commit()
         self.load_procesos()
 
+    # BOTÓN ELIMINAR PROCESO
+    def eliminar_proceso(self, p_id: str):
+        with rx.session() as session:
+            # Primero eliminamos barridos relacionados (esto cascada en DB si está configurado, o manual aquí)
+            barridos = session.exec(select(Barrido).where(Barrido.proceso_id == int(p_id))).all()
+            for b in barridos:
+                session.exec(delete(Oferta).where(Oferta.barrido_id == b.id))
+                session.exec(delete(Anexo).where(Anexo.barrido_id == b.id))
+                session.delete(b)
+            
+            proceso = session.get(Proceso, int(p_id))
+            if proceso:
+                session.delete(proceso)
+            session.commit()
+        self.load_procesos()
+
     def load_proceso_detalle(self):
         with rx.session() as session:
             proc = session.get(Proceso, self.proceso_id)
             if proc:
                 self.proceso_url_id = proc.codigo_proceso
-                self.categoria_id = str(proc.categoria_id)
                 ultimo_b = session.exec(select(Barrido).where(Barrido.proceso_id == self.proceso_id).order_by(desc(Barrido.id))).first()
                 if ultimo_b:
                     self.ofertas_actuales = session.exec(select(Oferta).where(Oferta.barrido_id == ultimo_b.id)).all()
@@ -74,27 +88,21 @@ class ProcesosState(State):
                 session.refresh(barrido)
                 
                 provs = session.exec(select(Proveedor).where(Proveedor.categoria_id == int(self.categoria_id))).all()
-                total = len(provs)
-
                 for i, p in enumerate(provs, 1):
-                    self.scraping_progress = f"({i}/{total}) Consultando RUC: {p.ruc}"
+                    self.scraping_progress = f"({i}/{len(provs)}) Consultando: {p.ruc}"
                     yield
                     res = await scrape_proceso(self.proceso_url_id, p.ruc)
                     if res:
-                        # Guardar productos
                         for it in res["items"]:
-                            desc_full = f"[{it['cpc']}] {it['cpc_desc']} - {it['descripcion']}"
                             session.add(Oferta(
                                 barrido_id=barrido.id, ruc_proveedor=p.ruc, razon_social=res["razon_social"],
-                                numero_item=it["numero"], cpc=it["cpc"], descripcion_producto=desc_full,
+                                numero_item=it["numero"], cpc=it["cpc"], descripcion_producto=it["descripcion"],
                                 unidad=it["unidad"], cantidad=it["cantidad"], valor_unitario=it["v_unit"], valor_total=it["v_total"]
                             ))
-                        # Guardar archivos
                         for an in res["anexos"]:
                             session.add(Anexo(barrido_id=barrido.id, ruc_proveedor=p.ruc, nombre_archivo=an["nombre"], url_archivo=an["url"]))
                     session.commit()
                 barrido.fecha_fin = datetime.now()
-                barrido.estado = "completado"
                 session.commit()
             self.load_proceso_detalle()
         finally:
