@@ -12,7 +12,7 @@ def oferta_row(oferta, ruc: str):
                 max_width="600px"
             ),
             rx.table.cell(
-                rx.text(f"{oferta.valor_total:,.2f}", align="right"),
+                rx.text(f"{oferta.valor_total:,.5f}", align="right"),
                 text_align="right"
             )
         ),
@@ -33,12 +33,29 @@ def anexo_badge(anexo, ruc: str):
         rx.fragment()
     )
 
+def total_row_for_ruc(ruc: str):
+    """Calcula y muestra el total para un RUC específico"""
+    # Nota: Esto se calcula en el backend, no en el frontend
+    # Por ahora solo mostramos la fila, el cálculo real viene de los datos
+    return rx.table.row(
+        rx.table.cell(""),
+        rx.table.cell(
+            rx.text("TOTAL:", weight="bold", align="right"),
+            text_align="right"
+        ),
+        rx.table.cell(
+            rx.text("USD.", weight="bold"),
+            text_align="right"
+        ),
+        background_color=rx.color("gray", 3)
+    )
+
 def oferta_card(ruc: str):
     """Card de proveedor con sus ofertas"""
     return rx.card(
         rx.vstack(
             # Header
-            rx.heading(f"RUC: {ruc}", size="5", color_scheme="grass"),
+            rx.heading(f"Proveedor RUC: {ruc}", size="5", color_scheme="grass"),
             
             # Tabla de ofertas
             rx.table.root(
@@ -46,14 +63,16 @@ def oferta_card(ruc: str):
                     rx.table.row(
                         rx.table.column_header_cell("No.", width="60px"),
                         rx.table.column_header_cell("Descripción"),
-                        rx.table.column_header_cell("Total", width="120px", text_align="right")
+                        rx.table.column_header_cell("Total", width="150px", text_align="right")
                     )
                 ),
                 rx.table.body(
                     rx.foreach(
                         ProcesosState.ofertas_actuales,
                         lambda o: oferta_row(o, ruc)
-                    )
+                    ),
+                    # Fila de total (se mostrará para cada proveedor)
+                    total_row_for_ruc(ruc)
                 ),
                 width="100%",
                 variant="surface",
