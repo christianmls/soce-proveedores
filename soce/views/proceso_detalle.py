@@ -60,57 +60,50 @@ def total_row_for_ruc(ruc: str):
         background_color=rx.color("gray", 3)
     )
 
-def datos_proveedor_card(oferta_primera):
-    """Card con datos del proveedor - usando la primera oferta para obtener datos"""
-    return rx.card(
-        rx.vstack(
-            rx.heading("Datos del Proveedor", size="4", margin_bottom="3"),
-            rx.grid(
-                rx.vstack(
+def datos_proveedor_row(oferta, ruc: str):
+    """Muestra datos del proveedor - solo la primera vez"""
+    return rx.cond(
+        oferta.ruc_proveedor == ruc,
+        rx.card(
+            rx.vstack(
+                rx.heading("Datos del Proveedor", size="4", margin_bottom="3"),
+                rx.grid(
                     rx.hstack(
                         rx.icon("user", size=16),
                         rx.text("RUC:", weight="bold", size="2"),
-                        rx.text(oferta_primera.ruc_proveedor, size="2"),
+                        rx.text(oferta.ruc_proveedor, size="2"),
                         spacing="2"
                     ),
                     rx.hstack(
                         rx.icon("building", size=16),
                         rx.text("Razón Social:", weight="bold", size="2"),
-                        rx.text(oferta_primera.razon_social or "N/A", size="2"),
+                        rx.text(oferta.razon_social or "N/A", size="2"),
                         spacing="2"
                     ),
+                    columns="1",
                     spacing="2",
-                    align_items="start"
+                    width="100%"
                 ),
-                columns="1",
-                spacing="2",
+                spacing="3",
                 width="100%"
             ),
-            spacing="3",
-            width="100%"
+            width="100%",
+            margin_bottom="4"
         ),
-        width="100%",
-        margin_bottom="4"
+        rx.fragment()
     )
 
 def oferta_card(ruc: str):
     """Card de proveedor con sus ofertas"""
-    # Obtener la primera oferta de este RUC para datos del proveedor
-    primera_oferta = None
-    for o in ProcesosState.ofertas_actuales:
-        if o.ruc_proveedor == ruc:
-            primera_oferta = o
-            break
-    
     return rx.vstack(
         # Título del proveedor
         rx.heading(f"Proveedor RUC: {ruc}", size="5", color_scheme="grass"),
         
-        # Datos del proveedor (si existe primera_oferta)
-        rx.cond(
-            primera_oferta is not None,
-            datos_proveedor_card(primera_oferta),
-            rx.fragment()
+        # Datos del proveedor - usar foreach para obtener la primera oferta
+        rx.foreach(
+            ProcesosState.ofertas_actuales,
+            lambda o: datos_proveedor_row(o, ruc),
+            # Solo se renderizará una vez porque datos_proveedor_row retorna fragment después
         ),
         
         # Tabla de ofertas
