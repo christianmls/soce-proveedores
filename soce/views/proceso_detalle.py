@@ -60,9 +60,10 @@ def oferta_card(ruc: str):
     razon_social = ProcesosState.primera_oferta_por_ruc.get(ruc, "")
     
     return rx.vstack(
+        # Título
         rx.heading(f"Proveedor RUC: {ruc}", size="5", color_scheme="grass"),
         
-        # Datos del proveedor expandidos
+        # Datos del proveedor
         rx.card(
             rx.vstack(
                 rx.heading("Datos del Proveedor", size="4", margin_bottom="3"),
@@ -85,43 +86,6 @@ def oferta_card(ruc: str):
                     columns="2",
                     spacing="3",
                     width="100%"
-                ),
-                spacing="3",
-                width="100%"
-            ),
-            width="100%",
-            margin_bottom="4"
-        ),
-        
-        rx.heading(f"Proveedor RUC: {ruc}", size="5", color_scheme="grass"),
-        
-        # Datos del proveedor - Una sola vez usando var computada
-        rx.card(
-            rx.vstack(
-                rx.heading("Datos del Proveedor", size="4", margin_bottom="3"),
-                rx.vstack(
-                    rx.hstack(
-                        rx.icon("user", size=16),
-                        rx.text("RUC:", weight="bold", size="2"),
-                        rx.text(ruc, size="2"),
-                        spacing="2"
-                    ),
-                    rx.hstack(
-                        rx.icon("building", size=16),
-                        rx.text("Razón Social:", weight="bold", size="2"),
-                        rx.text(
-                            rx.cond(
-                                razon_social != "",
-                                razon_social,
-                                "N/A"
-                            ),
-                            size="2"
-                        ),
-                        spacing="2"
-                    ),
-                    spacing="2",
-                    width="100%",
-                    align_items="start"
                 ),
                 spacing="3",
                 width="100%"
@@ -185,6 +149,7 @@ def oferta_card(ruc: str):
 def proceso_detalle_view():
     return rx.box(
         rx.vstack(
+            # Header
             rx.hstack(
                 rx.button(
                     rx.icon("arrow-left", size=16),
@@ -198,6 +163,7 @@ def proceso_detalle_view():
                 margin_bottom="4"
             ),
             
+            # Panel de control
             rx.card(
                 rx.hstack(
                     rx.button(
@@ -231,6 +197,7 @@ def proceso_detalle_view():
                 width="100%"
             ),
             
+            # Contenido
             rx.cond(
                 ProcesosState.rucs_unicos.length() == 0,
                 rx.card(
