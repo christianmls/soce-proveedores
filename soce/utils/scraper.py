@@ -1,9 +1,7 @@
-import re
-import asyncio
-
 from playwright.async_api import async_playwright
+import re
 from typing import Dict, Optional
-from urllib.parse import urljoin
+import asyncio
 
 async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
     pid_clean = proceso_id.rstrip(',')
@@ -40,7 +38,52 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             total_general = 0.0
             items = []
             anexos = []
+            datos_proveedor = {}
             
+            # ===== EXTRAER DATOS DEL PROVEEDOR =====
+            try:
+                # Buscar la sección "Datos del Proveedor"
+                proveedor_section = await page.query_selector("text=RUC:")
+                if proveedor_section:
+                    # Obtener el contenedor padre
+                    container = await proveedor_section.evaluate_handle("el => el.closest('table, div')")
+                    proveedor_text = await container.inner_text() if container else ""
+                    
+                    # Extraer datos con regex
+                    datos_proveedor["ruc"] = ruc
+                    
+                    razon_match = re.search(r'Razón Social[:\s]+([^\n]+)', proveedor_text, re.IGNORECASE)
+                    if razon_match:
+                        datos_proveedor["razon_social"] = razon_match.group(1).strip()
+                    
+                    correo_match = re.search(r'Correo electrónico[:\s]+([^\s\n]+@[^\s\n]+)', proveedor_text, re.IGNORECASE)
+                    if correo_match:
+                        datos_proveedor["correo"] = correo_match.group(1).strip()
+                    
+                    telefono_match = re.search(r'Teléfono[:\s]+([\d\s\-]+)', proveedor_text, re.IGNORECASE)
+                    if telefono_match:
+                        datos_proveedor["telefono"] = telefono_match.group(1).strip()
+                    
+                    pais_match = re.search(r'País[:\s]+([^\n]+)', proveedor_text, re.IGNORECASE)
+                    if pais_match:
+                        datos_proveedor["pais"] = pais_match.group(1).strip()
+                    
+                    provincia_match = re.search(r'Provincia[:\s]+([^\n]+)', proveedor_text, re.IGNORECASE)
+                    if provincia_match:
+                        datos_proveedor["provincia"] = provincia_match.group(1).strip()
+                    
+                    canton_match = re.search(r'Cantón[:\s]+([^\n]+)', proveedor_text, re.IGNORECASE)
+                    if canton_match:
+                        datos_proveedor["canton"] = canton_match.group(1).strip()
+                    
+                    direccion_match = re.search(r'Dirección[:\s]+([^\n]+)', proveedor_text, re.IGNORECASE)
+                    if direccion_match:
+                        datos_proveedor["direccion"] = direccion_match.group(1).strip()
+                    
+                    print(f"✓ Datos del proveedor extraídos: {datos_proveedor.get('razon_social', 'N/A')}")
+            except Exception as e:
+                print(f"Error extrayendo datos del proveedor: {e}")
+
             # ===== EXTRAER ITEMS Y TOTAL =====
             rows = await page.query_selector_all("table tr")
             
@@ -93,14 +136,14 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                     except:
                         continue
 
-            # ===== EXTRAER ANEXOS CON LINKS ABSOLUTOS =====
+            # ===== EXTRAER ANEXOS CON LINKS DEL HREF =====
             try:
                 all_tables = await page.query_selector_all("table")
                 
                 for table in all_tables:
                     table_text = await table.inner_text()
                     
-                    if "ARCHIVO" in table_text.upper() and ("ADJUNTAR" in table_text.upper() or "ADICIONAL" in table_text.upper()):
+                    if "ARCHIVO" in table_text.upper() or "ANEXO" in table_text.upper() or "Proforma" in table_text:
                         print(f"✓ Procesando tabla de anexos...")
                         
                         table_rows = await table.query_selector_all("tr")
@@ -112,41 +155,31 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                                 # Primera celda = nombre
                                 nombre_archivo = (await tcells[0].inner_text()).strip()
                                 
-                                # Segunda celda = buscar el link
+                                # Segunda celda = buscar el <a href>
                                 download_url = None
-                                
-                                # Buscar input type='image' (botón de descarga)
-                                link_element = await tcells[1].query_selector("input[type='image']")
+                                link_element = await tcells[1].query_selector("a")
                                 
                                 if link_element:
-                                    # Obtener onclick
-                                    onclick = await link_element.get_attribute("onclick")
+                                    # Obtener el href
+                                    href = await link_element.get_attribute("href")
                                     
-                                    if onclick:
-                                        # Ejemplo: onclick="window.open('../GE/ExeGENBajarArchivoGeneral.cpe?Archivo=...')"
-                                        # Extraer la URL relativa
-                                        match = re.search(r"window\.open\(['\"]([^'\"]+)['\"]", onclick)
-                                        if match:
-                                            relative_url = match.group(1)
-                                            # Convertir a URL absoluta
+                                    if href:
+                                        # Convertir a URL absoluta
+                                        if href.startswith('../'):
                                             # ../GE/... -> https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/GE/...
-                                            if relative_url.startswith('../'):
-                                                # Remover ../ y agregar base
-                                                relative_url = relative_url.replace('../', '')
-                                                download_url = base_url + relative_url
-                                            elif relative_url.startswith('/'):
-                                                # URL absoluta desde la raíz
-                                                download_url = "https://www.compraspublicas.gob.ec" + relative_url
-                                            else:
-                                                # URL relativa sin ../
-                                                download_url = base_url + relative_url
-                                            
-                                            print(f"✓ Link extraído: {download_url}")
+                                            relative_url = href.replace('../', '')
+                                            download_url = base_url + relative_url
+                                        elif href.startswith('/'):
+                                            download_url = "https://www.compraspublicas.gob.ec" + href
+                                        else:
+                                            download_url = base_url + href
+                                        
+                                        print(f"✓ Link extraído: {download_url}")
                                 
                                 # Validar nombre
                                 excluir = [
                                     "descripción", "archivo", "descargar", "adjuntar",
-                                    "adicional", "observaciones", "publicación", "opcional"
+                                    "adicional", "observaciones", "publicación", "opcional", ""
                                 ]
                                 
                                 es_valido = (
@@ -156,15 +189,12 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                                     not nombre_archivo.startswith("**")
                                 )
                                 
-                                if es_valido and not any(a["nombre"] == nombre_archivo for a in anexos):
-                                    # Usar URL de descarga o URL base como fallback
-                                    final_url = download_url if download_url else url
-                                    
+                                if es_valido and download_url and not any(a["nombre"] == nombre_archivo for a in anexos):
                                     anexos.append({
                                         "nombre": nombre_archivo,
-                                        "url": final_url
+                                        "url": download_url
                                     })
-                                    print(f"✓ Anexo guardado: {nombre_archivo} -> {final_url}")
+                                    print(f"✓ Anexo guardado: {nombre_archivo}")
                 
             except Exception as e:
                 print(f"Error extrayendo anexos: {e}")
@@ -182,7 +212,8 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             resultado = {
                 "total": total_general,
                 "items": items,
-                "anexos": anexos
+                "anexos": anexos,
+                "proveedor": datos_proveedor  # <-- NUEVO
             }
             
             print(f"✅ RUC {ruc}: {len(items)} items, Total=${total_general}, {len(anexos)} anexos")

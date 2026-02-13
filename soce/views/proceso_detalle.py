@@ -60,14 +60,61 @@ def total_row_for_ruc(ruc: str):
         background_color=rx.color("gray", 3)
     )
 
-def oferta_card(ruc: str):
-    """Card de proveedor con sus ofertas"""
+def datos_proveedor_card(oferta_primera):
+    """Card con datos del proveedor - usando la primera oferta para obtener datos"""
     return rx.card(
         rx.vstack(
-            # Header
-            rx.heading(f"Proveedor RUC: {ruc}", size="5", color_scheme="grass"),
-            
-            # Tabla de ofertas
+            rx.heading("Datos del Proveedor", size="4", margin_bottom="3"),
+            rx.grid(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("user", size=16),
+                        rx.text("RUC:", weight="bold", size="2"),
+                        rx.text(oferta_primera.ruc_proveedor, size="2"),
+                        spacing="2"
+                    ),
+                    rx.hstack(
+                        rx.icon("building", size=16),
+                        rx.text("Razón Social:", weight="bold", size="2"),
+                        rx.text(oferta_primera.razon_social or "N/A", size="2"),
+                        spacing="2"
+                    ),
+                    spacing="2",
+                    align_items="start"
+                ),
+                columns="1",
+                spacing="2",
+                width="100%"
+            ),
+            spacing="3",
+            width="100%"
+        ),
+        width="100%",
+        margin_bottom="4"
+    )
+
+def oferta_card(ruc: str):
+    """Card de proveedor con sus ofertas"""
+    # Obtener la primera oferta de este RUC para datos del proveedor
+    primera_oferta = None
+    for o in ProcesosState.ofertas_actuales:
+        if o.ruc_proveedor == ruc:
+            primera_oferta = o
+            break
+    
+    return rx.vstack(
+        # Título del proveedor
+        rx.heading(f"Proveedor RUC: {ruc}", size="5", color_scheme="grass"),
+        
+        # Datos del proveedor (si existe primera_oferta)
+        rx.cond(
+            primera_oferta is not None,
+            datos_proveedor_card(primera_oferta),
+            rx.fragment()
+        ),
+        
+        # Tabla de ofertas
+        rx.card(
             rx.table.root(
                 rx.table.header(
                     rx.table.row(
@@ -87,12 +134,15 @@ def oferta_card(ruc: str):
                 variant="surface",
                 size="2"
             ),
-            
-            # Anexos
-            rx.cond(
-                ProcesosState.anexos_actuales.length() > 0,
+            width="100%"
+        ),
+        
+        # Anexos
+        rx.cond(
+            ProcesosState.anexos_actuales.length() > 0,
+            rx.card(
                 rx.vstack(
-                    rx.text("Documentos Anexos:", weight="bold", size="2", margin_top="4"),
+                    rx.text("Documentos Anexos:", weight="bold", size="3"),
                     rx.flex(
                         rx.foreach(
                             ProcesosState.anexos_actuales,
@@ -102,16 +152,17 @@ def oferta_card(ruc: str):
                         spacing="2"
                     ),
                     width="100%",
-                    align_items="start"
+                    align_items="start",
+                    spacing="3"
                 ),
-                rx.fragment()
+                width="100%"
             ),
-            
-            spacing="4",
-            width="100%"
+            rx.fragment()
         ),
+        
+        spacing="4",
         width="100%",
-        margin_bottom="4"
+        margin_bottom="6"
     )
 
 def proceso_detalle_view():
@@ -188,7 +239,7 @@ def proceso_detalle_view():
                         oferta_card
                     ),
                     width="100%",
-                    spacing="4",
+                    spacing="6",
                     margin_top="6"
                 )
             ),

@@ -28,7 +28,6 @@ def categorias_view() -> rx.Component:
                     ),
                 ),
             ),
-            margin_bottom="6",
             width="100%",
         ),
         rx.table.root(
