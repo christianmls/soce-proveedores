@@ -7,9 +7,7 @@ def oferta_row(oferta, ruc: str):
         oferta.ruc_proveedor == ruc,
         rx.table.row(
             rx.table.cell(oferta.numero_item, width="60px"),
-            rx.table.cell(
-                rx.text(oferta.descripcion_producto, size="2")
-            ),
+            rx.table.cell(rx.text(oferta.descripcion_producto, size="2")),
             rx.table.cell(
                 rx.text(f"{oferta.valor_total:,.5f}", align="right"),
                 text_align="right",
@@ -60,50 +58,55 @@ def total_row_for_ruc(ruc: str):
         background_color=rx.color("gray", 3)
     )
 
-def datos_proveedor_row(oferta, ruc: str):
-    """Muestra datos del proveedor - solo la primera vez"""
-    return rx.cond(
-        oferta.ruc_proveedor == ruc,
-        rx.card(
-            rx.vstack(
-                rx.heading("Datos del Proveedor", size="4", margin_bottom="3"),
-                rx.grid(
+def oferta_card(ruc: str):
+    """Card de proveedor con sus ofertas"""
+    
+    def primera_oferta_datos(oferta):
+        """Renderiza datos del proveedor solo para la primera oferta del RUC"""
+        return rx.cond(
+            oferta.ruc_proveedor == ruc,
+            rx.card(
+                rx.vstack(
+                    rx.heading("Datos del Proveedor", size="4", margin_bottom="3"),
                     rx.hstack(
                         rx.icon("user", size=16),
                         rx.text("RUC:", weight="bold", size="2"),
-                        rx.text(oferta.ruc_proveedor, size="2"),
+                        rx.text(ruc, size="2"),
                         spacing="2"
                     ),
                     rx.hstack(
                         rx.icon("building", size=16),
                         rx.text("Razón Social:", weight="bold", size="2"),
-                        rx.text(oferta.razon_social or "N/A", size="2"),
+                        rx.text(
+                            rx.cond(
+                                oferta.razon_social != "",
+                                oferta.razon_social,
+                                "N/A"
+                            ),
+                            size="2"
+                        ),
                         spacing="2"
                     ),
-                    columns="1",
-                    spacing="2",
+                    spacing="3",
                     width="100%"
                 ),
-                spacing="3",
-                width="100%"
+                width="100%",
+                margin_bottom="4"
             ),
-            width="100%",
-            margin_bottom="4"
-        ),
-        rx.fragment()
-    )
-
-def oferta_card(ruc: str):
-    """Card de proveedor con sus ofertas"""
+            rx.fragment()
+        )
+    
     return rx.vstack(
         # Título del proveedor
         rx.heading(f"Proveedor RUC: {ruc}", size="5", color_scheme="grass"),
         
-        # Datos del proveedor - usar foreach para obtener la primera oferta
-        rx.foreach(
-            ProcesosState.ofertas_actuales,
-            lambda o: datos_proveedor_row(o, ruc),
-            # Solo se renderizará una vez porque datos_proveedor_row retorna fragment después
+        # Datos del proveedor (solo se muestra una vez)
+        rx.box(
+            rx.foreach(
+                ProcesosState.ofertas_actuales,
+                primera_oferta_datos
+            ),
+            width="100%"
         ),
         
         # Tabla de ofertas
