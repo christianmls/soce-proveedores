@@ -2,7 +2,6 @@ import reflex as rx
 from ..states.procesos import ProcesosState
 
 def oferta_row(oferta, ruc: str):
-    """Fila de oferta individual"""
     return rx.cond(
         oferta.ruc_proveedor == ruc,
         rx.table.row(
@@ -18,7 +17,6 @@ def oferta_row(oferta, ruc: str):
     )
 
 def anexo_badge(anexo, ruc: str):
-    """Badge de anexo como link externo"""
     return rx.cond(
         anexo.ruc_proveedor == ruc,
         rx.link(
@@ -37,7 +35,6 @@ def anexo_badge(anexo, ruc: str):
     )
 
 def total_row_for_ruc(ruc: str):
-    """Muestra el total para un RUC específico"""
     total = ProcesosState.totales_por_ruc.get(ruc, 0.0)
     
     return rx.table.row(
@@ -59,33 +56,38 @@ def total_row_for_ruc(ruc: str):
     )
 
 def oferta_card(ruc: str):
-    """Card de proveedor con sus ofertas"""
+    """Card de proveedor - mostrar datos solo UNA vez usando índice"""
     
-    def primera_oferta_datos(oferta):
-        """Renderiza datos del proveedor solo para la primera oferta del RUC"""
+    def primera_oferta_con_datos(oferta, index):
+        """Solo muestra datos en el índice 0 para este RUC"""
         return rx.cond(
-            oferta.ruc_proveedor == ruc,
+            (oferta.ruc_proveedor == ruc) & (index == 0),
             rx.card(
                 rx.vstack(
                     rx.heading("Datos del Proveedor", size="4", margin_bottom="3"),
-                    rx.hstack(
-                        rx.icon("user", size=16),
-                        rx.text("RUC:", weight="bold", size="2"),
-                        rx.text(ruc, size="2"),
-                        spacing="2"
-                    ),
-                    rx.hstack(
-                        rx.icon("building", size=16),
-                        rx.text("Razón Social:", weight="bold", size="2"),
-                        rx.text(
-                            rx.cond(
-                                oferta.razon_social != "",
-                                oferta.razon_social,
-                                "N/A"
-                            ),
-                            size="2"
+                    rx.vstack(
+                        rx.hstack(
+                            rx.icon("user", size=16),
+                            rx.text("RUC:", weight="bold", size="2"),
+                            rx.text(ruc, size="2"),
+                            spacing="2"
                         ),
-                        spacing="2"
+                        rx.hstack(
+                            rx.icon("building", size=16),
+                            rx.text("Razón Social:", weight="bold", size="2"),
+                            rx.text(
+                                rx.cond(
+                                    oferta.razon_social != "",
+                                    oferta.razon_social,
+                                    "N/A"
+                                ),
+                                size="2"
+                            ),
+                            spacing="2"
+                        ),
+                        spacing="2",
+                        width="100%",
+                        align_items="start"
                     ),
                     spacing="3",
                     width="100%"
@@ -97,19 +99,17 @@ def oferta_card(ruc: str):
         )
     
     return rx.vstack(
-        # Título del proveedor
         rx.heading(f"Proveedor RUC: {ruc}", size="5", color_scheme="grass"),
         
-        # Datos del proveedor (solo se muestra una vez)
+        # Datos del proveedor - SOLO MUESTRA UNA VEZ usando enumerate
         rx.box(
             rx.foreach(
-                ProcesosState.ofertas_actuales,
-                primera_oferta_datos
+                ProcesosState.ofertas_actuales.enumerate(),
+                lambda item: primera_oferta_con_datos(item[1], item[0])
             ),
             width="100%"
         ),
         
-        # Tabla de ofertas
         rx.card(
             rx.table.root(
                 rx.table.header(
@@ -133,7 +133,6 @@ def oferta_card(ruc: str):
             width="100%"
         ),
         
-        # Anexos
         rx.cond(
             ProcesosState.anexos_actuales.length() > 0,
             rx.card(
@@ -162,10 +161,8 @@ def oferta_card(ruc: str):
     )
 
 def proceso_detalle_view():
-    """Vista de detalle del proceso"""
     return rx.box(
         rx.vstack(
-            # Header con botón volver
             rx.hstack(
                 rx.button(
                     rx.icon("arrow-left", size=16),
@@ -179,7 +176,6 @@ def proceso_detalle_view():
                 margin_bottom="4"
             ),
             
-            # Panel de control
             rx.card(
                 rx.hstack(
                     rx.button(
@@ -213,7 +209,6 @@ def proceso_detalle_view():
                 width="100%"
             ),
             
-            # Mensaje cuando no hay datos
             rx.cond(
                 ProcesosState.rucs_unicos.length() == 0,
                 rx.card(
@@ -228,7 +223,6 @@ def proceso_detalle_view():
                     width="100%",
                     margin_top="6"
                 ),
-                # Lista de ofertas
                 rx.vstack(
                     rx.foreach(
                         ProcesosState.rucs_unicos,
