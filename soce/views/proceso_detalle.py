@@ -185,6 +185,19 @@ def proceso_detalle_view():
                         color_scheme="grass",
                         size="3"
                     ),
+                    # BOTÓN DE RESET
+                    rx.cond(
+                        ProcesosState.is_scraping,
+                        rx.button(
+                            rx.icon("x", size=16),
+                            "Cancelar",
+                            on_click=ProcesosState.resetear_scraping,
+                            variant="soft",
+                            color_scheme="red",
+                            size="2"
+                        ),
+                        rx.fragment()
+                    ),
                     rx.text(
                         ProcesosState.scraping_progress,
                         size="2",
@@ -192,7 +205,8 @@ def proceso_detalle_view():
                     ),
                     width="100%",
                     justify="between",
-                    align_items="center"
+                    align_items="center",
+                    spacing="3"
                 ),
                 width="100%"
             ),

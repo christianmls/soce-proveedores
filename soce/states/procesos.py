@@ -152,6 +152,11 @@ class ProcesosState(State):
         self.load_proceso_detalle()
         self.current_view = "detalle_proceso"
 
+    def resetear_scraping(self):
+        """Resetea el estado de scraping"""
+        self.is_scraping = False
+        self.scraping_progress = ""        
+
     async def iniciar_scraping(self):
         if not self.categoria_id: 
             self.scraping_progress = "❌ Selecciona una categoría"
