@@ -55,6 +55,15 @@ class ProcesosState(State):
                 totales[oferta.ruc_proveedor] = 0.0
             totales[oferta.ruc_proveedor] += oferta.valor_total
         return totales
+    
+    @rx.var
+    def primera_oferta_por_ruc(self) -> Dict[str, str]:
+        """Obtiene la razón social de la primera oferta por RUC"""
+        primeras = {}
+        for oferta in self.ofertas_actuales:
+            if oferta.ruc_proveedor not in primeras:
+                primeras[oferta.ruc_proveedor] = oferta.razon_social or ""
+        return primeras    
 
     def load_procesos(self):
         """Carga todos los procesos"""
