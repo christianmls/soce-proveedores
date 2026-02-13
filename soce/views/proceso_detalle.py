@@ -63,28 +63,49 @@ def oferta_card(ruc: str):
         # Título
         rx.heading(f"Proveedor RUC: {ruc}", size="5", color_scheme="grass"),
         
-        # Datos del proveedor
+        # Datos del proveedor - EXPANDIDO
         rx.card(
             rx.vstack(
                 rx.heading("Datos del Proveedor", size="4", margin_bottom="3"),
                 rx.grid(
                     rx.hstack(
-                        rx.icon("user", size=16),
+                        rx.icon("user", size=14),
                         rx.text("RUC:", weight="bold", size="2"),
                         rx.text(ruc, size="2"),
                         spacing="2"
                     ),
                     rx.hstack(
-                        rx.icon("building", size=16),
+                        rx.icon("building", size=14),
                         rx.text("Razón Social:", weight="bold", size="2"),
-                        rx.text(
-                            rx.cond(razon_social != "", razon_social, "N/A"),
-                            size="2"
-                        ),
+                        rx.text(rx.cond(razon_social != "", razon_social, "N/A"), size="2"),
+                        spacing="2"
+                    ),
+                    rx.hstack(
+                        rx.icon("mail", size=14),
+                        rx.text("Correo:", weight="bold", size="2"),
+                        rx.text("correo_placeholder", size="2"),  # TODO: agregar al state
+                        spacing="2"
+                    ),
+                    rx.hstack(
+                        rx.icon("phone", size=14),
+                        rx.text("Teléfono:", weight="bold", size="2"),
+                        rx.text("telefono_placeholder", size="2"),
+                        spacing="2"
+                    ),
+                    rx.hstack(
+                        rx.icon("map-pin", size=14),
+                        rx.text("País:", weight="bold", size="2"),
+                        rx.text("pais_placeholder", size="2"),
+                        spacing="2"
+                    ),
+                    rx.hstack(
+                        rx.icon("map", size=14),
+                        rx.text("Provincia:", weight="bold", size="2"),
+                        rx.text("provincia_placeholder", size="2"),
                         spacing="2"
                     ),
                     columns="2",
-                    spacing="3",
+                    spacing="2",
                     width="100%"
                 ),
                 spacing="3",

@@ -53,47 +53,44 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
             try:
                 content = await page.content()
                 
-                # Buscar RUC
-                ruc_match = re.search(r'<strong>RUC:</strong>\s*</td>\s*<td[^>]*>\s*([^\s<]+)', content)
-                if ruc_match:
-                    datos_proveedor["ruc"] = ruc_match.group(1).strip()
-                
-                # Buscar Razón Social
-                razon_match = re.search(r'<strong>Razón Social:</strong>\s*</td>\s*<td[^>]*>\s*([^<]+)', content)
+                # Razón Social
+                razon_match = re.search(r'Raz[oó]n\s+Social[:\s]*</.*?>\s*<.*?>([^<]+)', content, re.IGNORECASE | re.DOTALL)
                 if razon_match:
                     datos_proveedor["razon_social"] = razon_match.group(1).strip()
                 
-                # Buscar Correo
-                correo_match = re.search(r'<strong>Correo electrónico:</strong>\s*</td>\s*<td[^>]*>\s*([^<\s]+@[^<\s]+)', content)
+                # Correo
+                correo_match = re.search(r'Correo\s+electr[oó]nico[:\s]*</.*?>\s*<.*?>([^<\s]+@[^<\s]+)', content, re.IGNORECASE | re.DOTALL)
                 if correo_match:
                     datos_proveedor["correo"] = correo_match.group(1).strip()
                 
-                # Buscar Teléfono
-                telefono_match = re.search(r'<strong>Teléfono:</strong>\s*</td>\s*<td[^>]*>\s*([^<]+)', content)
+                # Teléfono
+                telefono_match = re.search(r'Tel[eé]fono[:\s]*</.*?>\s*<.*?>([^<]+)', content, re.IGNORECASE | re.DOTALL)
                 if telefono_match:
                     datos_proveedor["telefono"] = telefono_match.group(1).strip()
                 
-                # Buscar País
-                pais_match = re.search(r'<strong>País:</strong>\s*</td>\s*<td[^>]*>\s*([^<]+)', content)
+                # País
+                pais_match = re.search(r'Pa[ií]s[:\s]*</.*?>\s*<.*?>([^<]+)', content, re.IGNORECASE | re.DOTALL)
                 if pais_match:
                     datos_proveedor["pais"] = pais_match.group(1).strip()
                 
-                # Buscar Provincia
-                provincia_match = re.search(r'<strong>Provincia:</strong>\s*</td>\s*<td[^>]*>\s*([^<]+)', content)
+                # Provincia
+                provincia_match = re.search(r'Provincia[:\s]*</.*?>\s*<.*?>([^<]+)', content, re.IGNORECASE | re.DOTALL)
                 if provincia_match:
                     datos_proveedor["provincia"] = provincia_match.group(1).strip()
                 
-                # Buscar Cantón
-                canton_match = re.search(r'<strong>Cantón:</strong>\s*</td>\s*<td[^>]*>\s*([^<]+)', content)
+                # Cantón
+                canton_match = re.search(r'Cant[oó]n[:\s]*</.*?>\s*<.*?>([^<]+)', content, re.IGNORECASE | re.DOTALL)
                 if canton_match:
                     datos_proveedor["canton"] = canton_match.group(1).strip()
                 
-                # Buscar Dirección
-                direccion_match = re.search(r'<strong>Dirección:</strong>\s*</td>\s*<td[^>]*>\s*([^<]+)', content)
+                # Dirección
+                direccion_match = re.search(r'Direcci[oó]n[:\s]*</.*?>\s*<.*?>([^<]+)', content, re.IGNORECASE | re.DOTALL)
                 if direccion_match:
                     datos_proveedor["direccion"] = direccion_match.group(1).strip()
                 
                 print(f"✓ Proveedor: {datos_proveedor['razon_social']} ({datos_proveedor['ruc']})")
+                print(f"  Correo: {datos_proveedor['correo']}")
+                print(f"  Tel: {datos_proveedor['telefono']}")
                 
             except Exception as e:
                 print(f"Error extrayendo datos del proveedor: {e}")
@@ -139,44 +136,55 @@ async def scrape_proceso(proceso_id: str, ruc: str) -> Optional[Dict]:
                     except:
                         continue
 
-            # ===== EXTRAER ANEXOS CON HREF CORRECTO =====
+            # ===== EXTRAER ANEXOS - MEJORADO =====
             try:
-                # Obtener el HTML completo
                 html_content = await page.content()
                 
-                # Buscar todos los enlaces de descarga con regex
-                # Patrón: <a href="../GE/ExeGENBajarArchivoGeneral.cpe?Archivo=...&idPath=...">
+                # Buscar TODOS los links de descarga
                 patron_links = re.finditer(
                     r'<a\s+href="(\.\./GE/ExeGENBajarArchivoGeneral\.cpe\?[^"]+)"[^>]*>',
                     html_content
                 )
                 
+                anexos_encontrados = []
                 for match in patron_links:
                     href_relativo = match.group(1)
-                    
-                    # Convertir a URL absoluta
-                    # ../GE/... -> https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/GE/...
                     url_absoluta = base_url + href_relativo.replace('../', '')
                     
-                    # Buscar el nombre del archivo en la fila anterior
-                    # El patrón usual es <td>NombreArchivo</td> seguido del <td> con el link
+                    # Buscar nombre en los 500 caracteres anteriores
                     pos_link = match.start()
                     fragmento_antes = html_content[max(0, pos_link-500):pos_link]
                     
-                    # Buscar el último <td> antes del link
-                    td_match = re.search(r'<td[^>]*>\s*([^<]+?)\s*</td>\s*$', fragmento_antes)
+                    # Buscar el último <td> con contenido
+                    td_match = re.search(r'<td[^>]*>\s*([^<]+?)\s*</td>[^<]*$', fragmento_antes)
                     if td_match:
                         nombre_archivo = td_match.group(1).strip()
                         
-                        # Validar que no sea un header
-                        if nombre_archivo and len(nombre_archivo) > 2 and \
-                           nombre_archivo not in ["Descripción del Archivo", "Descargar Archivo", ""]:
-                            
-                            anexos.append({
+                        # Filtrar headers
+                        palabras_invalidas = [
+                            "descripción del archivo", "descargar archivo", 
+                            "archivo para adjuntar", "descripción", ""
+                        ]
+                        
+                        es_valido = (
+                            nombre_archivo and 
+                            len(nombre_archivo) > 2 and
+                            not any(inv in nombre_archivo.lower() for inv in palabras_invalidas)
+                        )
+                        
+                        if es_valido:
+                            anexos_encontrados.append({
                                 "nombre": nombre_archivo,
                                 "url": url_absoluta
                             })
-                            print(f"✓ Anexo: {nombre_archivo} -> {url_absoluta[:80]}...")
+                            print(f"✓ Anexo: {nombre_archivo}")
+                
+                # Eliminar duplicados manteniendo el orden
+                anexos_vistos = set()
+                for anexo in anexos_encontrados:
+                    if anexo["nombre"] not in anexos_vistos:
+                        anexos.append(anexo)
+                        anexos_vistos.add(anexo["nombre"])
                 
             except Exception as e:
                 print(f"Error extrayendo anexos: {e}")
