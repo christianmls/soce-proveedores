@@ -209,12 +209,25 @@ class ProcesosState(State):
                         )
                         
                         if res and res.get("items"):
+                            # Actualizar datos del proveedor si se extrajeron
+                            if res.get("proveedor"):
+                                datos_prov = res["proveedor"]
+                                if datos_prov.get("razon_social"):
+                                    p.nombre = datos_prov["razon_social"]
+                                    p.correo = datos_prov.get("correo", "")
+                                    p.telefono = datos_prov.get("telefono", "")
+                                    p.pais = datos_prov.get("pais", "")
+                                    p.provincia = datos_prov.get("provincia", "")
+                                    p.canton = datos_prov.get("canton", "")
+                                    p.direccion = datos_prov.get("direccion", "")
+                                    session.add(p)
+                            
                             # Guardar ofertas
                             for it in res["items"]:
                                 session.add(Oferta(
                                     barrido_id=barrido_id, 
                                     ruc_proveedor=p.ruc,
-                                    razon_social=p.nombre or "",
+                                    razon_social=res.get("proveedor", {}).get("razon_social", p.nombre or ""),
                                     numero_item=it.get("numero", ""), 
                                     cpc=it.get("cpc", ""), 
                                     descripcion_producto=it.get("desc", ""), 

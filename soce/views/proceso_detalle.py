@@ -62,6 +62,39 @@ def oferta_card(ruc: str):
     return rx.vstack(
         rx.heading(f"Proveedor RUC: {ruc}", size="5", color_scheme="grass"),
         
+        # Datos del proveedor expandidos
+        rx.card(
+            rx.vstack(
+                rx.heading("Datos del Proveedor", size="4", margin_bottom="3"),
+                rx.grid(
+                    rx.hstack(
+                        rx.icon("user", size=16),
+                        rx.text("RUC:", weight="bold", size="2"),
+                        rx.text(ruc, size="2"),
+                        spacing="2"
+                    ),
+                    rx.hstack(
+                        rx.icon("building", size=16),
+                        rx.text("Razón Social:", weight="bold", size="2"),
+                        rx.text(
+                            rx.cond(razon_social != "", razon_social, "N/A"),
+                            size="2"
+                        ),
+                        spacing="2"
+                    ),
+                    columns="2",
+                    spacing="3",
+                    width="100%"
+                ),
+                spacing="3",
+                width="100%"
+            ),
+            width="100%",
+            margin_bottom="4"
+        ),
+        
+        rx.heading(f"Proveedor RUC: {ruc}", size="5", color_scheme="grass"),
+        
         # Datos del proveedor - Una sola vez usando var computada
         rx.card(
             rx.vstack(

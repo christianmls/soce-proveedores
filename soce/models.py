@@ -1,6 +1,6 @@
 import reflex as rx
-from typing import Optional, List
-from sqlmodel import Field, Relationship
+from typing import Optional
+from sqlmodel import Field
 from datetime import datetime
 
 class Categoria(rx.Model, table=True):
@@ -10,11 +10,14 @@ class Categoria(rx.Model, table=True):
 class Proveedor(rx.Model, table=True):
     ruc: str
     nombre: Optional[str] = ""
+    correo: Optional[str] = ""
+    telefono: Optional[str] = ""
+    pais: Optional[str] = ""
+    provincia: Optional[str] = ""
+    canton: Optional[str] = ""
+    direccion: Optional[str] = ""
     contacto: str = ""
-    categoria_id: Optional[int] = Field(
-        default=None, 
-        foreign_key="categoria.id"
-    )
+    categoria_id: Optional[int] = Field(default=None, foreign_key="categoria.id")
 
 class Proceso(rx.Model, table=True):
     codigo_proceso: str
