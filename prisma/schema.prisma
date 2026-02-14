@@ -1,0 +1,81 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./soce.db"
+}
+
+model Categoria {
+  id          Int          @id @default(autoincrement())
+  nombre      String
+  descripcion String       @default("")
+  proveedores Proveedor[]
+  procesos    Proceso[]
+}
+
+model Proveedor {
+  id           Int        @id @default(autoincrement())
+  ruc          String
+  nombre       String     @default("")
+  correo       String     @default("")
+  telefono     String     @default("")
+  pais         String     @default("")
+  provincia    String     @default("")
+  canton       String     @default("")
+  direccion    String     @default("")
+  contacto     String     @default("")
+  categoriaId  Int?       @map("categoria_id")
+  categoria    Categoria? @relation(fields: [categoriaId], references: [id])
+}
+
+model Proceso {
+  id             Int       @id @default(autoincrement())
+  codigoProceso  String    @map("codigo_proceso")
+  nombre         String    @default("")
+  fechaCreacion  DateTime? @map("fecha_creacion")
+  categoriaId    Int       @map("categoria_id")
+  categoria      Categoria @relation(fields: [categoriaId], references: [id])
+  barridos       Barrido[]
+}
+
+model Barrido {
+  id          Int       @id @default(autoincrement())
+  procesoId   Int       @map("proceso_id")
+  fechaInicio DateTime? @map("fecha_inicio")
+  fechaFin    DateTime? @map("fecha_fin")
+  estado      String    @default("en_proceso")
+  proceso     Proceso   @relation(fields: [procesoId], references: [id], onDelete: Cascade)
+  ofertas     Oferta[]
+  anexos      Anexo[]
+}
+
+model Oferta {
+  id                  Int       @id @default(autoincrement())
+  barridoId           Int       @map("barrido_id")
+  rucProveedor        String    @map("ruc_proveedor")
+  razonSocial         String    @default("") @map("razon_social")
+  numeroItem          String    @default("") @map("numero_item")
+  cpc                 String    @default("")
+  descripcionProducto String    @default("") @map("descripcion_producto")
+  unidad              String    @default("")
+  cantidad            Float     @default(0.0)
+  valorUnitario       Float     @default(0.0) @map("valor_unitario")
+  valorTotal          Float     @default(0.0) @map("valor_total")
+  fechaScraping       DateTime? @map("fecha_scraping")
+  barrido             Barrido   @relation(fields: [barridoId], references: [id], onDelete: Cascade)
+}
+
+model Anexo {
+  id             Int       @id @default(autoincrement())
+  barridoId      Int       @map("barrido_id")
+  rucProveedor   String    @map("ruc_proveedor")
+  nombreArchivo  String    @map("nombre_archivo")
+  urlArchivo     String    @default("") @map("url_archivo")
+  fechaRegistro  DateTime? @map("fecha_registro")
+  barrido        Barrido   @relation(fields: [barridoId], references: [id], onDelete: Cascade)
+}

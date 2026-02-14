@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./prisma:/app/prisma
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/prisma/soce.db
+    shm_size: '2gb'
+    cap_add:
+      - SYS_ADMIN
